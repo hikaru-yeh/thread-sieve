@@ -20,8 +20,8 @@
   const PANEL_ID = "threads-saved-export-panel";
   const FILE_HANDLE_DB = "threadsSavedExportFileDb";
   const FILE_HANDLE_STORE = "handles";
-  const FILE_HANDLE_KEY = "scribe-json";
-  const AI_FILE_HANDLE_KEY = "scribe-ai-json";
+  const FILE_HANDLE_KEY = "catch-json";
+  const AI_FILE_HANDLE_KEY = "unsave-json";
   const DEBUG_LOG_FILE_HANDLE_KEY = "threads-debug-log";
   const DEFAULT_SCROLL_DELAY = 1400;
   const DEFAULT_MAX_PENDING_LOAD_ROUNDS = 8;
