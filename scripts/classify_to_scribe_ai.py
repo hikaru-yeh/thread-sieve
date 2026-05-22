@@ -257,9 +257,8 @@ def main() -> int:
         return 2
     config = load_config(config_path)
 
-    raw_override = args.ai_categories or os.environ.get("AI_CATEGORIES", "")
-    if raw_override.strip():
-        config.ai_categories = {t.strip() for t in raw_override.split(",") if t.strip()}
+    if args.ai_categories and args.ai_categories.strip():
+        config.ai_categories = {t.strip() for t in args.ai_categories.split(",") if t.strip()}
 
     input_path = Path(args.input or os.environ.get("SCRIBE_PATH", "data/scribe.json"))
     output_path = Path(args.output or os.environ.get("SCRIBE_AI_PATH", "data/scribe-ai.json"))
