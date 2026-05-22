@@ -65,9 +65,9 @@ Verify Node can run it:
 node "C:\Users\<you>\.claude\plugins\cache\superpowers-marketplace\superpowers-chrome\2.1.0\skills\browsing\chrome-ws" --help
 ```
 
-#### B. Set `CHROME_WS_PATH` (if path differs)
+#### B. Set `CHROME_WS_PATH` in `.env`
 
-`agent_driver.py` defaults to the path above with `shane_yeh` as username. Override in `.env` for other machines:
+`agent_driver.py` requires `CHROME_WS_PATH` — there is no default. Set it in `.env`:
 
 ```dotenv
 CHROME_WS_PATH=C:\Users\<you>\.claude\plugins\cache\superpowers-marketplace\superpowers-chrome\2.1.0\skills\browsing\chrome-ws
@@ -111,7 +111,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
-# edit .env: fill GEMINI_API_KEY; set CHROME_WS_PATH if needed; verify SCRIBE_PATH / SCRIBE_AI_PATH / NOTE_PROJECT_PATH
+# edit .env: fill GEMINI_API_KEY and CHROME_WS_PATH; verify SCRIBE_PATH / SCRIBE_AI_PATH / NOTE_PROJECT_PATH
 ```
 
 The note project must already be set up (its own `.env`, `THREADS_GEMINI_*` keys, output dir, etc.). See `PROJECT_threads-to-note/README.md`.
@@ -211,19 +211,30 @@ python scripts/agent_driver.py click unsave-selected
 
 ## Configuration
 
-All settings live in `.env`. Same keys can be overridden via CLI flags on each script.
+### `.env` — secrets and machine-specific paths
 
 | Key | Default | Used by |
 | --- | --- | --- |
 | `SCRIBE_PATH` | `data/scribe.json` | classifier, watcher, userscript handle |
 | `SCRIBE_AI_PATH` | `data/scribe-ai.json` | classifier, watcher, userscript handle |
 | `NOTE_PROJECT_PATH` | `..\PROJECT_threads-to-note` | watcher (subprocess cwd) |
-| `GEMINI_API_KEY` | _empty_ | classifier |
-| `CHROME_WS_PATH` | `C:\Users\shane_yeh\.claude\...\chrome-ws` | agent_driver — override when username differs |
+| `GEMINI_API_KEY` | _required_ | classifier |
+| `CHROME_WS_PATH` | _required_ | agent_driver — path to the `chrome-ws` CLI |
 | `CLASSIFIER_MODEL` | `gemini-2.5-flash` | classifier |
-| `AI_CATEGORIES` | `AI,科技` | classifier filter — items with these categories become `decision="ai"` |
 | `DEBOUNCE_SECONDS` | `2.0` | watcher |
 | `POLL_SECONDS` | `1.0` | watcher |
+
+### `classify_config.json` — classification logic
+
+Edit this file to customise categories without touching Python.
+
+| Key | Description |
+| --- | --- |
+| `categories` | Ordered list of categories the Gemini classifier can output |
+| `unsaved-categories` | Subset of `categories` that map to `decision="ai"` — posts in these categories get auto-unsaved |
+| `hints` | Free-text rules injected into the Gemini prompt to guide priority decisions between categories |
+
+Override `unsaved-categories` for a single run: `python scripts/classify_to_scribe_ai.py --unsaved-categories AI,科技`
 
 ---
 
@@ -246,7 +257,7 @@ Tests cover:
 
 - **Browser must be open + on the saved page** for auto-unsave to fire. The watcher will still produce `scribe-ai.json` and markdown notes regardless, but the unsave step is a no-op until you visit `/saved`.
 - **File System Access permission may expire** after a browser restart. The userscript panel will show "handle: not bound" and ignore polls until you re-bind via the button.
-- **Classifier duplication**: this project intentionally re-implements the 18-category Gemini prompt locally (see `scripts/classify_to_scribe_ai.py`). If you change the prompt in `PROJECT_threads-to-note/services/category_classifier.py`, sync the changes here manually.
+- **Classifier duplication**: this project runs its own Gemini classifier whose categories and hints live in `classify_config.json`. If you change the prompt in `PROJECT_threads-to-note/services/category_classifier.py`, sync the category list in `classify_config.json` manually.
 - **Gemini quota**: each scrape triggers two Gemini-using subprocesses (this project's classifier + the note project's own classifier inside `app.py`). The shared category list is intentional — both run on the full scrape so neither blocks the other.
 
 ---
