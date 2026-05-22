@@ -5,7 +5,7 @@ import json
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,40 +14,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _gemini_client import GeminiClient
 
 
-CATEGORY_OPTIONS = [
-    "Claude Code",
-    "生活妙招",
-    "好笑的",
-    "LingOrm",
-    "日文學習",
-    "泰百",
-    "健身",
-    "身體健康",
-    "心理健康",
-    "動漫",
-    "歷史",
-    "政治",
-    "科技",
-    "旅遊",
-    "職場",
-    "美食",
-    "AI",
-    "Threads",
-]
-_CATEGORY_OPTION_SET = set(CATEGORY_OPTIONS)
-_CATEGORY_CANONICAL_BY_CASEFOLD = {c.casefold(): c for c in CATEGORY_OPTIONS}
 _CATEGORY_PREFIX_RE = re.compile(r"^(?:分類|category)\s*[:：]\s*", re.IGNORECASE)
 _LEADING_WRAP_RE = re.compile(r'^[\s`"\'「『（(\[]+')
 _TRAILING_WRAP_RE = re.compile(r'[\s`"\'」』）)\]]+$')
 
-LINGORM_DEFINITION = (
-    "LingOrm：與泰國藝人／CP Ling、Orm、00k、หลิง、ออม、LingOrm 相關的粉絲內容、"
-    "劇情對話、訪談、剪輯、花絮、互動、迷因，都歸類為 LingOrm；"
-    "即使內容同時很好笑，也優先輸出 LingOrm，不要輸出 好笑的。"
-)
-
-DEFAULT_AI_CATEGORIES = {"AI", "科技"}
 DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_CONFIG_PATH = "classify_config.json"
+
+
+@dataclass
+class ClassifyConfig:
+    categories: list[str]
+    ai_categories: set[str]
+    hints: list[str]
+    category_set: set[str] = field(init=False, repr=False)
+    canonical_by_casefold: dict[str, str] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.category_set = set(self.categories)
+        self.canonical_by_casefold = {c.casefold(): c for c in self.categories}
 
 
 @dataclass
@@ -58,6 +43,15 @@ class ClassifiedItem:
     confidence: float
     reason: str
     classified_at: str
+
+
+def load_config(path: Path) -> ClassifyConfig:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return ClassifyConfig(
+        categories=data["categories"],
+        ai_categories=set(data.get("ai_categories", [])),
+        hints=data.get("hints", []),
+    )
 
 
 def load_dotenv(path: Path) -> None:
@@ -86,25 +80,19 @@ def load_posts(path: Path) -> list[dict]:
     return payload
 
 
-def build_prompt(author_handle: str, content_text: str) -> str:
+def build_prompt(author_handle: str, content_text: str, config: ClassifyConfig) -> str:
+    hints_block = "\n".join(f"- {h}" for h in config.hints)
     return (
         "請從以下分類中只選一個最適合的分類。\n"
         "只能輸出分類名稱本身，不要解釋、不要標點、不要額外文字。\n\n"
-        f"可選分類：{'、'.join(CATEGORY_OPTIONS)}\n\n"
-        "分類判別補充：\n"
-        f"- {LINGORM_DEFINITION}\n"
-        "- 如果內容是戀愛、情侶、放閃、曖昧、超甜、愛情故事這類 romance / CP 內容，優先輸出 LingOrm。\n"
-        "- 如果內容在談面試、求職、履歷、STAR/CARL 回答框架、hiring manager、recruiter、升職或職場建議，優先輸出 職場。\n"
-        "- 如果內容在談 neurodivergent、ADHD、自閉症、burnout、焦慮、憂鬱、情緒照顧或心理狀態，優先輸出 心理健康。\n"
-        "- 如果內容明確談論 Claude Code、CLAUDE.md、Codex（AI agent）、Claude Code skill 或 hook，優先輸出 Claude Code，不要輸出 AI 或 科技。\n"
-        "- 如果內容在談 AI、agent、skill、prompt、workflow、LLM 工具（例如 GPT 指令技巧、Gemini 個人化設定）或把這些整合進服務，優先輸出 AI，不要輸出 科技。\n"
-        "- 如果內容明確屬於特定 fandom / CP 主題，優先輸出該主題分類，不要只因為內容好笑就歸到 好笑的。\n\n"
-        f"作者：{author_handle}\n"
+        f"可選分類：{'、'.join(config.categories)}\n\n"
+        + (f"分類判別補充：\n{hints_block}\n\n" if hints_block else "")
+        + f"作者：{author_handle}\n"
         f"內容：{content_text[:5000]}"
     )
 
 
-def normalize_category(raw_category: str) -> str:
+def normalize_category(raw_category: str, config: ClassifyConfig) -> str:
     for line in raw_category.splitlines():
         candidate = line.strip()
         if not candidate:
@@ -114,7 +102,7 @@ def normalize_category(raw_category: str) -> str:
         normalized = _TRAILING_WRAP_RE.sub("", normalized)
         normalized = normalized.strip().rstrip("，。；：:,.!！?")
         if normalized:
-            return _CATEGORY_CANONICAL_BY_CASEFOLD.get(normalized.casefold(), normalized)
+            return config.canonical_by_casefold.get(normalized.casefold(), normalized)
     return ""
 
 
@@ -127,7 +115,7 @@ def classify_post(
     post: dict,
     client: GeminiClient,
     model: str,
-    ai_categories: set[str],
+    config: ClassifyConfig,
 ) -> tuple[ClassifiedItem, str]:
     """Returns (item, category). category may be empty string on failure."""
     author = post.get("authorHandle", "") or ""
@@ -136,7 +124,7 @@ def classify_post(
     post_url = post.get("postUrl", "") or ""
 
     try:
-        raw = client.generate_text(build_prompt(author, content), model=model)
+        raw = client.generate_text(build_prompt(author, content, config), model=model)
     except Exception as error:
         return (
             ClassifiedItem(
@@ -150,8 +138,8 @@ def classify_post(
             "",
         )
 
-    category = normalize_category(raw)
-    if category not in _CATEGORY_OPTION_SET:
+    category = normalize_category(raw, config)
+    if category not in config.category_set:
         return (
             ClassifiedItem(
                 post_id=post_id,
@@ -164,7 +152,7 @@ def classify_post(
             "",
         )
 
-    decision = "ai" if category in ai_categories else "not_ai"
+    decision = "ai" if category in config.ai_categories else "not_ai"
     return (
         ClassifiedItem(
             post_id=post_id,
@@ -184,7 +172,7 @@ def build_output_payload(
     model: str,
     posts: list[dict],
     classified: list[tuple[ClassifiedItem, str]],
-    ai_categories: set[str],
+    config: ClassifyConfig,
 ) -> dict:
     items_out = []
     ai_count = 0
@@ -217,7 +205,7 @@ def build_output_payload(
         "sourceFile": source_file,
         "generatedAt": timestamp(),
         "backend": f"crawl-the-threads/category_classifier ({model})",
-        "aiCategories": sorted(ai_categories),
+        "aiCategories": sorted(config.ai_categories),
         "summary": {
             "total": len(posts),
             "ai": ai_count,
@@ -227,13 +215,6 @@ def build_output_payload(
         },
         "items": items_out,
     }
-
-
-def parse_ai_categories(raw: str) -> set[str]:
-    parts = [token.strip() for token in raw.split(",") if token.strip()]
-    if not parts:
-        return set(DEFAULT_AI_CATEGORIES)
-    return set(parts)
 
 
 def _pre_scan_env_file(argv: list[str]) -> str:
@@ -251,7 +232,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default=None)
     parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default="")
-    parser.add_argument("--ai-categories", default=None)
+    parser.add_argument("--ai-categories", default=None, help="override config ai_categories (comma-separated)")
+    parser.add_argument("--config", default=None, help=f"path to classify_config.json (default: {DEFAULT_CONFIG_PATH})")
     parser.add_argument("--env-file", default=".env")
     return parser.parse_args()
 
@@ -265,8 +247,20 @@ def main() -> int:
         print("ERROR: GEMINI_API_KEY missing. Set in .env or pass --api-key.", file=sys.stderr)
         return 2
 
-    raw_categories = args.ai_categories or os.environ.get("AI_CATEGORIES", ",".join(sorted(DEFAULT_AI_CATEGORIES)))
-    ai_categories = parse_ai_categories(raw_categories)
+    config_path = Path(args.config or os.environ.get("CLASSIFY_CONFIG", DEFAULT_CONFIG_PATH))
+    if not config_path.exists():
+        print(
+            f"ERROR: config not found at {config_path}. "
+            "Copy classify_config.json, edit categories and hints, then retry.",
+            file=sys.stderr,
+        )
+        return 2
+    config = load_config(config_path)
+
+    raw_override = args.ai_categories or os.environ.get("AI_CATEGORIES", "")
+    if raw_override.strip():
+        config.ai_categories = {t.strip() for t in raw_override.split(",") if t.strip()}
+
     input_path = Path(args.input or os.environ.get("SCRIBE_PATH", "data/scribe.json"))
     output_path = Path(args.output or os.environ.get("SCRIBE_AI_PATH", "data/scribe-ai.json"))
     model = args.model or os.environ.get("CLASSIFIER_MODEL", DEFAULT_MODEL)
@@ -277,21 +271,14 @@ def main() -> int:
     classified: list[tuple[ClassifiedItem, str]] = []
     for index, post in enumerate(posts, start=1):
         print(f"[{index}/{len(posts)}] classifying {post.get('postId', '?')}", file=sys.stderr)
-        classified.append(
-            classify_post(
-                post=post,
-                client=client,
-                model=model,
-                ai_categories=ai_categories,
-            )
-        )
+        classified.append(classify_post(post=post, client=client, model=model, config=config))
 
     payload = build_output_payload(
         source_file=input_path.name,
         model=model,
         posts=posts,
         classified=classified,
-        ai_categories=ai_categories,
+        config=config,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
