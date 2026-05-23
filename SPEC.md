@@ -1,176 +1,317 @@
-# Spec: Crawl-Owned Threads Image OCR
+# Spec: Backfill Image OCR for Existing Threads Markdown
+
+## Assumptions
+- This feature belongs in `crawl-the-threads`, not in `PROJECT_threads-to-note`.
+- The command is an agent-assisted backfill tool: the user gives a file or folder, the script scans markdown notes, filters likely OCR-missing stubs, fetches Threads images from each note's frontmatter URL, OCRs those images, and updates the existing markdown file.
+- The first implementation should be deterministic and testable. "內文不夠詳細" should use a configurable rule-based heuristic, not a hidden LLM judgment.
+- Existing notes should be preserved. The tool may insert or replace only the `## 圖片文字` section, and by default it skips files that already have that section.
+- OCR should reuse the crawl-side implementation added for the live pipeline, rather than re-creating the old `threads-to-note` feature.
 
 ## Objective
+Build a batch backfill script at `scripts/backfill_image_ocr.py` for markdown files that were already written before image OCR existed.
 
-`crawl-the-threads` owns the complete local workflow:
+The primary user is the local agent/operator maintaining the knowledge wiki. They should be able to point the tool at a specific markdown file or a folder, preview which files would be touched, then run the backfill safely. A single failing Threads post must not stop the batch.
 
-```text
-Threads saved scrape -> catch.json -> classify -> unsave.json
-                         |
-                         -> markdown writer subprocess -> markdown notes
-                         |
-                         -> crawl-owned image OCR -> ## 圖片文字
-```
-
-The OCR feature enriches markdown notes for image-heavy Threads posts classified as `AI` or `Claude Code`. It must live in this repository, not in the legacy `PROJECT_threads-to-note` codebase.
-
-Success means:
-
-- OCR code, config, tests, and docs are in `crawl-the-threads`.
-- The watcher runs OCR after both classifier and markdown subprocess finish.
-- OCR reads `catch.json` and `unsave.json`, selects `AI` / `Claude Code`, renders each Threads post, OCRs attached images with Gemini Vision, and inserts `## 圖片文字` into the matching markdown file.
-- Failures are soft: missing markdown, missing images, download errors, and Gemini OCR errors skip that item without failing the whole pipeline.
+Acceptance criteria:
+- The script scans a file or directory of `.md` files.
+- It selects default candidates only when frontmatter has `status: stub`, no existing `## 圖片文字`, a Threads URL exists in frontmatter key `網址` or `url`, and the markdown body is below the detail threshold.
+- It fetches Threads images using the crawl-side OCR flow and OCRs them with the existing Gemini image OCR client.
+- It inserts the generated `## 圖片文字` section before `## Sources`.
+- It writes JSONL logs for `processed`, `skipped`, `failed`, and `no_images`.
+- It supports `--dry-run` without modifying files.
+- It prints a batch summary and exits successfully when individual files soft-fail.
 
 ## Tech Stack
-
-- Python 3.11+
-- `google-genai` for Gemini text and image OCR
-- Playwright Python for rendered Threads post image discovery
-- `pytest` for tests
-- Existing Tampermonkey userscript remains the scrape source
-- Legacy markdown writer may still run as a subprocess, but OCR is not implemented there
+- Language: Python 3.x, matching the existing scripts and tests.
+- Test runner: `pytest`.
+- Existing OCR modules to reuse:
+  - `scripts/image_ocr_to_markdown.py` for Threads image discovery/OCR helpers where practical.
+  - `scripts/_gemini_client.py` for Gemini Vision OCR calls.
+- Existing browser dependency: Playwright, already used by crawl-side OCR.
+- Configuration:
+  - Gemini API key should come from existing environment/config patterns.
+  - No hardcoded secrets.
+  - No hardcoded knowledge-wiki absolute paths.
 
 ## Commands
-
-Install:
+Create feature branch:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-playwright install chromium
+git switch -c codex/backfill-image-ocr
 ```
 
-Run watcher:
+Preview candidates in a folder:
 
 ```powershell
-.\start_pipeline.ps1
+python scripts/backfill_image_ocr.py --path "D:\shane_yeh\Documents\_Claude_Code\knowledge-wiki\wiki-pages\AI 工具" --dry-run
 ```
 
-Run OCR manually:
+Backfill one markdown file:
 
 ```powershell
-python scripts/image_ocr_to_markdown.py `
-  --input data/catch.json `
-  --classifications data/unsave.json `
-  --markdown-root D:\path\to\markdown-root
+python scripts/backfill_image_ocr.py --path "D:\shane_yeh\Documents\_Claude_Code\knowledge-wiki\wiki-pages\AI 工具\AI Agent\Claude Code：30秒搞定套件CVE.md"
 ```
 
-Run tests:
+Backfill with explicit log path:
 
 ```powershell
-pytest tests/
+python scripts/backfill_image_ocr.py --path "D:\shane_yeh\Documents\_Claude_Code\knowledge-wiki\wiki-pages\AI 工具" --log data/backfill-image-ocr.jsonl
+```
+
+Run focused tests:
+
+```powershell
+pytest tests/test_backfill_image_ocr.py -q
+```
+
+Run full test suite:
+
+```powershell
+pytest tests/ -q
 ```
 
 ## Project Structure
+```text
+scripts/
+  backfill_image_ocr.py        # New batch backfill CLI and pure helper functions
+  image_ocr_to_markdown.py     # Existing crawl-side Threads image/OCR flow to reuse
+  _gemini_client.py            # Existing Gemini image OCR client
+
+tests/
+  test_backfill_image_ocr.py   # New unit tests for parsing, insertion, dry-run, summary
+  test_image_ocr_to_markdown.py# Existing OCR helper tests; update only if helpers are shared
+
+data/
+  backfill-image-ocr.jsonl     # Default or example log destination if user supplies data/
+```
+
+## CLI Behavior
+The script should expose a small, explicit CLI:
 
 ```text
-scripts/watch_pipeline.py
-  Watches catch.json, runs classifier + markdown writer, then runs OCR.
+python scripts/backfill_image_ocr.py --path <file-or-directory> [options]
 
-scripts/classify_to_scribe_ai.py
-  Produces unsave.json with classification reasons.
-
-scripts/image_ocr_to_markdown.py
-  Crawl-owned OCR step. Selects trigger posts, discovers images, OCRs them, and patches markdown notes.
-
-scripts/_gemini_client.py
-  Shared Gemini client, including image input support.
-
-tests/test_image_ocr_to_markdown.py
-  OCR selection, markdown matching, section replacement, DOM image filtering.
-
-tests/test_watch_pipeline.py
-  Watcher orchestration, including OCR step ordering.
+Options:
+  --path <path>                 Required. Markdown file or folder to scan.
+  --log <path>                  Optional JSONL log path. Default can be timestamped under data/.
+  --dry-run                     Scan and log planned actions without fetching images or editing files.
+  --force                       Reprocess files that already contain ## 圖片文字.
+  --min-content-chars <int>     Detail threshold for non-frontmatter body text. Default: 800.
+  --limit <int>                 Optional cap for agent-controlled test batches.
+  --headless / --headed         Playwright mode, following existing OCR defaults.
 ```
 
-## Code Style
-
-Keep this boring and explicit:
+Default candidate rule:
 
 ```python
-selected = select_trigger_posts(posts, classifications, {"AI", "Claude Code"})
-for post in selected:
-    markdown_path = find_markdown_by_post_url(markdown_root, post["postUrl"])
-    if markdown_path is None:
-        continue
-    ocr_texts = ocr_post_images(post_url=post["postUrl"], client=client, model=model)
-    apply_ocr_section(markdown_path, ocr_texts)
+def should_backfill(note):
+    return (
+        note.frontmatter.get("status") == "stub"
+        and note.thread_url is not None
+        and not note.has_image_text_section
+        and note.main_content_chars < min_content_chars
+    )
 ```
 
-Conventions:
+`--force` relaxes only the existing-section skip, allowing replacement of `## 圖片文字`. It should not bypass missing URL or missing `status: stub`.
 
-- Use environment variables for runtime paths and models.
-- Do not hardcode secrets or machine-specific output paths.
-- Keep OCR failures soft.
-- Keep markdown matching simple: scan markdown files for the exact `postUrl`.
-- Replace an existing `## 圖片文字` section instead of duplicating it.
-- Avoid changing the legacy markdown writer for OCR behavior.
+## Markdown Parsing
+Frontmatter parsing requirements:
+- Support YAML-style frontmatter bounded by `---` at the beginning of the file.
+- Extract URL from frontmatter key `網址` first, then `url`.
+- Strip quotes around URL values.
+- Treat missing or malformed frontmatter as `skipped`.
 
-## Configuration
+Body detail heuristic:
+- Count characters after frontmatter while excluding the `## Sources` section and excluding any existing `## 圖片文字` section.
+- Default threshold: `800` non-whitespace characters.
+- The threshold must be configurable for tests and CLI use.
 
-`crawl-the-threads/.env`:
+Section insertion requirements:
+- If `## 圖片文字` does not exist, insert the section immediately before `## Sources`.
+- If `## Sources` does not exist, append the section at the end of the file.
+- If `## 圖片文字` exists and `--force` is set, replace only that section.
+- Preserve the rest of the markdown content and line endings as much as practical.
+- Use this section shape:
 
-```dotenv
-MARKDOWN_OUTPUT_PATH=
-IMAGE_OCR_ENABLED=true
-IMAGE_OCR_MODEL=gemini-2.5-flash
-IMAGE_OCR_CATEGORIES=AI,Claude Code
+```markdown
+## 圖片文字
+
+### 圖片 1
+
+<ocr text>
+
+### 圖片 2
+
+<ocr text>
 ```
 
-If `MARKDOWN_OUTPUT_PATH` is blank, `watch_pipeline.py` tries to read `THREADS_MARKDOWN_OUTPUT` from `MARKDOWN_PATH\.env`.
+## OCR Flow
+For each selected candidate:
+- Fetch the Threads post URL from frontmatter.
+- Use the crawl-side Threads image discovery flow to find post image URLs.
+- If no image URLs are found, write a `no_images` log entry and leave the file unchanged.
+- For each image, use the existing Gemini image OCR client.
+- If OCR returns usable text for at least one image, insert or replace the markdown section.
+- If fetching or OCR raises, write a `failed` log entry and continue to the next file.
 
-## Runtime Flow
+Soft failure policy:
+- Per-file failures must not abort the batch.
+- The process should return success if the batch runner itself worked, even when individual files failed.
+- Fatal CLI/input errors, such as missing `--path`, unreadable root path, or invalid log destination, may exit non-zero before processing.
 
-1. Userscript writes `catch.json`.
-2. Watcher starts `classify_to_scribe_ai.py` and the markdown subprocess.
-3. Watcher waits for both jobs.
-4. Watcher resolves markdown output root.
-5. Watcher starts `scripts/image_ocr_to_markdown.py`.
-6. OCR script:
-   - reads posts from `catch.json`;
-   - reads classification reasons from `unsave.json`;
-   - selects posts whose reason is in `IMAGE_OCR_CATEGORIES`;
-   - renders each Threads post with Playwright;
-   - filters carousel image URLs from `document.images`;
-   - sends each image to Gemini Vision;
-   - inserts or replaces `## 圖片文字` before `## Sources`.
+## JSONL Log
+The script writes one JSON object per considered markdown file.
+
+Required fields:
+
+```json
+{
+  "timestamp": "2026-05-24T12:34:56+02:00",
+  "path": "D:\\...",
+  "post_url": "https://www.threads.com/@...",
+  "status": "processed",
+  "reason": "ocr_inserted",
+  "dry_run": false,
+  "image_count": 3,
+  "ocr_text_count": 3,
+  "chars_before": 421,
+  "chars_after": 2140,
+  "error": null
+}
+```
+
+Valid `status` values:
+- `processed`: file was updated, or would be updated in `--dry-run`.
+- `skipped`: file did not match candidate criteria.
+- `no_images`: candidate matched, but no Threads post images were discovered.
+- `failed`: candidate matched, but fetch/OCR/write failed.
+
+Recommended `reason` values:
+- `dry_run_candidate`
+- `ocr_inserted`
+- `ocr_replaced`
+- `already_has_image_text`
+- `status_not_stub`
+- `content_detailed_enough`
+- `missing_url`
+- `no_images_found`
+- `fetch_failed`
+- `ocr_failed`
+- `write_failed`
+
+## Batch Summary
+At the end, print a concise summary:
+
+```text
+Backfill Image OCR summary
+Scanned: 42
+Processed: 6
+Skipped: 31
+No images: 3
+Failed: 2
+Log: data/backfill-image-ocr-20260524-123456.jsonl
+```
+
+The summary should be returned from a pure helper as data so tests can assert it without scraping stdout.
+
+## Code Style
+Prefer small pure helpers around the file-system and network edges. The network/OCR parts should be injectable for tests.
+
+Example shape:
+
+```python
+@dataclass(frozen=True)
+class BackfillDecision:
+    status: str
+    reason: str
+    post_url: str | None = None
+
+
+def extract_frontmatter_url(markdown: str) -> str | None:
+    frontmatter = parse_frontmatter(markdown)
+    return frontmatter.get("網址") or frontmatter.get("url")
+
+
+def insert_image_text_section(markdown: str, ocr_texts: list[str], *, force: bool = False) -> str:
+    section = build_image_text_section(ocr_texts)
+    if has_image_text_section(markdown):
+        if not force:
+            return markdown
+        return replace_image_text_section(markdown, section)
+    return insert_before_sources(markdown, section)
+```
+
+Guidelines:
+- Keep CLI parsing thin; put behavior in testable functions.
+- Do not use ad hoc path globals.
+- Keep JSONL event construction centralized.
+- Reuse existing OCR helpers rather than duplicating browser/Gemini code.
+- Do not add broad refactors unrelated to backfill behavior.
 
 ## Testing Strategy
+Add `tests/test_backfill_image_ocr.py` with focused unit tests. Mock image discovery and OCR; do not hit Threads or Gemini in unit tests.
 
-Unit tests cover:
+Required tests:
+- URL extraction:
+  - Extracts `網址` from frontmatter.
+  - Extracts `url` from frontmatter.
+  - Prefers `網址` when both are present.
+  - Handles quoted values.
+  - Returns missing-url skip decision when absent.
+- Section insertion/replacement:
+  - Inserts `## 圖片文字` before `## Sources`.
+  - Appends when `## Sources` is absent.
+  - Replaces existing `## 圖片文字` only with `--force`.
+  - Preserves surrounding content.
+- Skip existing:
+  - Default behavior skips files already containing `## 圖片文字`.
+  - `--force` turns the existing section into a candidate.
+- Dry-run:
+  - Does not call image discovery/OCR.
+  - Does not write markdown files.
+  - Writes/logs `processed` with `reason: dry_run_candidate` for candidates.
+- Batch summary:
+  - Aggregates `processed`, `skipped`, `failed`, and `no_images`.
+  - Continues after one item fails.
+  - Returns summary data independent of stdout.
 
-- selecting trigger posts from `catch.json` + `unsave.json`;
-- finding markdown files by exact post URL;
-- inserting `## 圖片文字` before `## Sources`;
-- replacing an existing `## 圖片文字` section;
-- filtering rendered DOM image records to carousel image URLs;
-- watcher launching OCR after classifier and notes jobs finish.
-
-Manual smoke tests:
-
-- Run `scripts/image_ocr_to_markdown.py` against a known image-heavy Threads post.
-- Confirm `images=N`, Gemini OCR text is written, and the markdown note has one `## 圖片文字` section.
+Optional integration smoke test:
+- Use a temporary markdown file with injected fake image discovery/OCR callables and verify the file is updated on disk.
 
 ## Boundaries
-
 Always:
-
-- Keep this feature in `crawl-the-threads`.
-- Use TDD for behavior changes.
-- Keep OCR failures soft.
-- Run `pytest tests/` before claiming completion.
+- Keep all failures soft at the per-note level.
+- Skip existing `## 圖片文字` by default.
+- Use frontmatter `網址` or `url` as the source URL.
+- Insert OCR output before `## Sources`.
+- Log every considered markdown file as JSONL.
+- Run `pytest tests/test_backfill_image_ocr.py -q` before claiming implementation complete.
 
 Ask first:
-
-- Moving markdown generation itself into `crawl-the-threads`.
-- Changing `catch.json` or `unsave.json` schemas.
-- Reclassifying posts after OCR.
-- Saving image files locally.
+- Adding new third-party dependencies.
+- Changing existing live crawl/watch pipeline behavior.
+- Editing README beyond the README consistency gate.
+- Changing the default candidate heuristic from deterministic rules to LLM judgment.
+- Processing non-`stub` notes by default.
 
 Never:
+- Hardcode API keys, tokens, passwords, or local user-specific paths in source code.
+- Require `PROJECT_threads-to-note` to run this backfill.
+- Delete or rewrite unrelated markdown sections.
+- Abort the whole batch because one Threads post fails.
+- Commit generated JSONL logs unless explicitly requested.
 
-- Hardcode API keys or secrets.
-- Require modifications to the legacy `PROJECT_threads-to-note` project for OCR.
-- Duplicate `## 圖片文字` sections.
+## Success Criteria
+- `scripts/backfill_image_ocr.py` exists and can scan a file or folder.
+- A dry run against a folder reports candidates without modifying files.
+- A real run updates eligible markdown by adding `## 圖片文字` before `## Sources`.
+- Files with existing `## 圖片文字` are skipped by default.
+- JSONL logs contain one event per considered file with the required status set.
+- Unit tests cover URL extraction, section insertion/replacement, skip existing, dry-run, and batch summary.
+- Full `pytest tests/ -q` passes.
 
+## Open Questions
+- Should `status: Stub` or other case variants be accepted, or only exact `stub`?
+- Should the default detail threshold be `800` characters, or do you prefer a different number for your wiki notes?
+- Should `--force` also allow non-`stub` notes, or should that require a separate future flag?

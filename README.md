@@ -229,6 +229,39 @@ python scripts/agent_driver.py click stop
 
 ---
 
+## Backfill existing markdown image OCR
+
+Use `scripts/backfill_image_ocr.py` when older markdown notes were already written before image OCR existed. The tool scans a markdown file or folder, finds likely OCR-missing stubs, fetches the Threads post images, OCRs them with Gemini Vision, and inserts `## 圖片文字` before `## Sources`.
+
+Default candidate rules:
+
+- frontmatter has `status: stub`
+- frontmatter has `網址` or `url`
+- the note does not already contain `## 圖片文字`
+- the non-frontmatter body is shorter than `--min-content-chars` (default: `800`)
+
+Preview a folder without fetching images, calling Gemini, or editing files:
+
+```powershell
+python scripts/backfill_image_ocr.py --path "<wiki-folder>" --dry-run
+```
+
+Run backfill for one file:
+
+```powershell
+python scripts/backfill_image_ocr.py --path "<wiki-folder>\AI Agent\example.md"
+```
+
+Write an explicit JSONL log:
+
+```powershell
+python scripts/backfill_image_ocr.py --path "<wiki-folder>" --log data/backfill-image-ocr.jsonl
+```
+
+Each considered file gets one JSONL event with `processed`, `skipped`, `failed`, or `no_images`. Individual file failures are soft and do not stop the batch. Use `--force` only when you want to replace an existing `## 圖片文字` section.
+
+---
+
 ## Configuration
 
 ### `.env` — secrets and machine-specific paths
@@ -277,6 +310,7 @@ Tests cover:
 - `classify_to_scribe_ai.py` — category filter, output schema, error / unsure buckets, custom categories
 - `watch_pipeline.py` — debounce, missing-file handling, `.env` loader
 - `image_ocr_to_markdown.py` — trigger filtering, markdown matching, OCR section insertion, DOM image filtering
+- `backfill_image_ocr.py` — frontmatter URL extraction, candidate skipping, dry-run behavior, OCR section insertion/replacement, batch summary
 
 ---
 
