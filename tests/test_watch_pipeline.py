@@ -71,3 +71,42 @@ def test_load_dotenv_skips_existing_env(tmp_path, monkeypatch):
 
 def test_load_dotenv_handles_missing_file(tmp_path):
     mod.load_dotenv(tmp_path / "nope.env")  # should not raise
+
+
+def test_run_pipeline_runs_ocr_after_classify_and_notes(monkeypatch, tmp_path):
+    calls = []
+    catch = tmp_path / "catch.json"
+    unsave = tmp_path / "unsave.json"
+    markdown_root = tmp_path / "markdown"
+    note_project = tmp_path / "note-project"
+    note_project.mkdir()
+
+    class FakeProc:
+        def __init__(self, name):
+            self.name = name
+
+        def wait(self):
+            calls.append(("wait", self.name))
+            return 0
+
+    def fake_launch_job(name, args, *, cwd, env):
+        calls.append(("launch", name, cwd, env.copy(), args))
+        return FakeProc(name)
+
+    monkeypatch.setattr(mod, "launch_job", fake_launch_job)
+    monkeypatch.setenv("MARKDOWN_OUTPUT_PATH", str(markdown_root))
+
+    mod.run_pipeline(
+        scribe_path=catch,
+        scribe_ai_path=unsave,
+        note_project_path=note_project,
+        project_root=Path("project-root"),
+    )
+
+    launched_names = [call[1] for call in calls if call[0] == "launch"]
+    assert launched_names == ["classify", "notes", "ocr"]
+    assert calls.index(("wait", "classify")) < launched_names.index("ocr") + 4
+    ocr_call = next(call for call in calls if call[0] == "launch" and call[1] == "ocr")
+    assert "--input" in ocr_call[4]
+    assert "--classifications" in ocr_call[4]
+    assert "--markdown-root" in ocr_call[4]

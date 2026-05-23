@@ -52,3 +52,14 @@ class GeminiClient:
                 time.sleep(delay)
         assert last_error is not None
         raise last_error
+
+    def generate_text_from_image(self, image_bytes: bytes, prompt: str, *, model: str) -> str:
+        image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+        response = self._client.models.generate_content(
+            model=model,
+            contents=[image_part, prompt],
+            config=types.GenerateContentConfig(temperature=0),
+        )
+        if not response.text:
+            logger.warning("Gemini Vision returned empty response for image OCR")
+        return (response.text or "").strip()

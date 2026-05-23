@@ -77,6 +77,24 @@ def wait_for_jobs(jobs: list[tuple[str, subprocess.Popen]]) -> None:
         log_line(f"[{name}] exit code: {rc}")
 
 
+def resolve_markdown_output_path(note_project_path: Path, env: dict[str, str]) -> Path | None:
+    explicit = env.get("MARKDOWN_OUTPUT_PATH", "").strip()
+    if explicit:
+        return Path(explicit)
+
+    note_env = note_project_path / ".env"
+    if not note_env.exists():
+        return None
+    for raw_line in note_env.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() == "THREADS_MARKDOWN_OUTPUT" and value.strip():
+            return Path(value.strip().strip('"').strip("'"))
+    return None
+
+
 def is_stable(path: Path, *, debounce_seconds: float, poll_seconds: float) -> bool:
     """Return True once mtime+size stays unchanged for `debounce_seconds`."""
     try:
@@ -142,6 +160,24 @@ def run_pipeline(
         ("notes", launch_job("notes", note_args, cwd=note_project_path, env=note_env)),
     ]
     wait_for_jobs(jobs)
+
+    markdown_output_path = resolve_markdown_output_path(note_project_path, parent_env)
+    if parent_env.get("IMAGE_OCR_ENABLED", "true").strip().lower() in {"false", "0", "no", "off"}:
+        log_line("[ocr] skipped: IMAGE_OCR_ENABLED=false")
+        return
+    if markdown_output_path is None:
+        log_line("[ocr] skipped: MARKDOWN_OUTPUT_PATH or THREADS_MARKDOWN_OUTPUT not configured")
+        return
+
+    ocr_env = parent_env.copy()
+    ocr_args = [
+        sys.executable,
+        str(project_root / "scripts" / "image_ocr_to_markdown.py"),
+        "--input", str(scribe_path),
+        "--classifications", str(scribe_ai_path),
+        "--markdown-root", str(markdown_output_path),
+    ]
+    wait_for_jobs([("ocr", launch_job("ocr", ocr_args, cwd=project_root, env=ocr_env))])
 
 
 def watch_loop(
