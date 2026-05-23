@@ -579,7 +579,7 @@
       const payload = JSON.parse(await file.text());
       const sourceItems = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : null;
       if (!sourceItems) {
-        throw new Error("AI 結果格式不正確，找不到 items 陣列。");
+        throw new Error("UNSAVE 結果格式不正確，找不到 items 陣列。");
       }
 
       const items = sourceItems.map((item) => this.normalizeAiItem(item));
@@ -587,7 +587,7 @@
       state.aiMap = this.buildAiMap(items);
       state.aiIndexMap = this.buildAiIndexMap(items);
       const payloadSummary = payload?.summary && typeof payload.summary === "object" ? payload.summary : null;
-      state.aiLoadStatus = `已載入 ${items.length} 筆 AI 結果`;
+      state.aiLoadStatus = `已載入 ${items.length} 筆 UNSAVE 結果`;
       state.aiResultFileName = fileHandle.name || "unsave.json";
       state.aiResultGeneratedAt = typeof payload?.generatedAt === "string" ? payload.generatedAt : "";
       state.aiResultBackend = typeof payload?.backend === "string" ? payload.backend : "";
@@ -647,7 +647,7 @@
         postUrl: post?.postUrl || "",
         decision: "ai",
         confidence: 0.56,
-        reason: "本地關鍵詞判斷為 AI 候選；目前載入的 AI 結果未命中這個 DOM key，可能是瀏覽器載入舊檔或 Threads URL key 不一致。",
+        reason: "本地關鍵詞判斷為 UNSAVE 候選；目前載入的 UNSAVE 結果未命中這個 DOM key，可能是瀏覽器載入舊檔或 Threads URL key 不一致。",
         localCandidate: true
       };
     },
@@ -842,7 +842,7 @@
 
     clearSuppressedKeys() {
       if (state.suppressedAiKeys.size === 0) {
-        setError("目前沒有 AI 排除項目需要重設。");
+        setError("目前沒有 UNSAVE 排除項目需要重設。");
         return;
       }
       const count = state.suppressedAiKeys.size;
@@ -851,7 +851,7 @@
       if (state.aiItems.length > 0) {
         this.selectHighConfidence();
       }
-      setError(`已重設 ${count} 筆 AI 排除項目。`);
+      setError(`已重設 ${count} 筆 UNSAVE 排除項目。`);
       DebugLogUtils.appendEvent("ai_suppressed_keys_cleared", {
         count
       }).catch(() => {});
@@ -911,7 +911,7 @@
     },
 
     makeBadgeText(aiItem, tier) {
-      const label = aiItem.decision === "unsure" ? "UNSURE" : "AI";
+      const label = aiItem.decision === "unsure" ? "UNSURE" : "UNSAVE";
       const suffix = typeof aiItem.confidence === "number" ? ` ${aiItem.confidence.toFixed(2)}` : "";
       if (aiItem.localCandidate) {
         return `${label}${suffix} 候選`;
@@ -1122,7 +1122,7 @@
         visibleEntries: visibleEntries.map((entry) => entry.key).slice(0, 20),
         diagnostics
       }).catch(() => {});
-      setError(`已寫入 ${diagnostics.length} 筆 AI key 診斷到 debug log。`);
+      setError(`已寫入 ${diagnostics.length} 筆 UNSAVE key 診斷到 debug log。`);
       UI.update();
     },
 
@@ -1172,7 +1172,7 @@
       const processedKeys = this.getSuppressedKeySet();
       state.selectedAiKeys = new Set(this.getSelectedReviewableItemKeys((tier) => tier === "high"));
       this.syncHighlights();
-      state.aiLoadStatus = `AI 標亮已啟用（總選取 ${state.selectedAiKeys.size} 筆；目前 DOM 隨捲動同步）`;
+      state.aiLoadStatus = `UNSAVE 標亮已啟用（總選取 ${state.selectedAiKeys.size} 筆；目前 DOM 隨捲動同步）`;
       const itemCounts = this.countAiItemsByTier();
       DebugLogUtils.appendEvent("ai_highlights_activated", {
         selectedCount: state.selectedAiKeys.size,
@@ -1300,7 +1300,7 @@
       this.syncHighlights();
       state.aiReviewStats.selected = state.selectedAiKeys.size;
       if (state.selectedAiKeys.size === 0) {
-        setError("目前沒有高信心 AI 貼文。");
+        setError("目前沒有高信心 UNSAVE 貼文。");
       } else {
         setError("");
       }
@@ -1320,9 +1320,9 @@
       this.syncHighlights();
       state.aiReviewStats.selected = state.selectedAiKeys.size;
       if (state.selectedAiKeys.size === 0) {
-        setError("目前沒有可選取的 AI 標亮貼文。");
+        setError("目前沒有可選取的 UNSAVE 標亮貼文。");
       } else {
-        setError(`已選取 ${state.selectedAiKeys.size} 筆 AI/unsure 標亮貼文。`);
+        setError(`已選取 ${state.selectedAiKeys.size} 筆 UNSAVE/unsure 標亮貼文。`);
       }
       DebugLogUtils.appendEvent("ai_all_highlighted_selected", {
         selectedCount: state.selectedAiKeys.size,
@@ -2785,12 +2785,12 @@
           <button id="${PANEL_ID}-copy">複製 JSON</button>
         </div>
         <div class="actions">
-          <button id="${PANEL_ID}-load-ai">載入 AI 結果</button>
+          <button id="${PANEL_ID}-load-ai">載入 UNSAVE 結果</button>
           <button id="${PANEL_ID}-apply-ai">套用標亮</button>
           <button id="${PANEL_ID}-select-high">全選高信心</button>
           <button id="${PANEL_ID}-select-all-highlighted">全選全部標亮</button>
-          <button id="${PANEL_ID}-clear-selection">清除 AI 勾選</button>
-          <button id="${PANEL_ID}-reset-ai-suppressed">重設 AI 排除</button>
+          <button id="${PANEL_ID}-clear-selection">清除 UNSAVE 勾選</button>
+          <button id="${PANEL_ID}-reset-ai-suppressed">重設 UNSAVE 排除</button>
           <button id="${PANEL_ID}-diagnose-ai-keys">診斷指定貼文</button>
           <button id="${PANEL_ID}-unsave-selected">取消儲存已選取</button>
           <button id="${PANEL_ID}-debug-log">設定 Debug Log</button>
@@ -2892,7 +2892,7 @@
             multiple: false,
             types: [
               {
-                description: "AI result JSON",
+                description: "UNSAVE result JSON",
                 accept: {
                   "application/json": [".json"]
                 }
@@ -2905,7 +2905,7 @@
           if (error?.name === "AbortError") {
             return;
           }
-          setError(`載入 AI 結果失敗: ${error instanceof Error ? error.message : String(error)}`);
+          setError(`載入 UNSAVE 結果失敗: ${error instanceof Error ? error.message : String(error)}`);
         }
       });
       this.elements.applyAi.addEventListener("click", () => AiReviewUtils.applyHighlights());
@@ -2951,16 +2951,16 @@
         `最舊已見日期: ${state.oldestSeenPublished || "未知"}`,
         `自動存檔: ${getAutoSaveStatusText()}`,
         `Debug Log: ${getDebugLogStatusText()}`,
-        `AI 結果: ${state.aiLoadStatus}`,
-        `AI 檔案: ${state.aiResultFileName || "未指定"}`,
-        `AI 產生時間/後端: ${state.aiResultGeneratedAt || "未知"} / ${state.aiResultBackend || "未知"}`,
-        `AI 來源/摘要: ${state.aiResultSourceFile || "未知"} / ${formatAiResultSummary(state.aiResultSummary)}`,
-        `AI 總候選/已選取: ${aiItemCounts.reviewable}/${state.aiReviewStats.selected}`,
-        `AI 目前 DOM 標亮: ${state.aiReviewStats.renderedMatched}`,
-        `AI 總高信心/低信心/unsure: ${aiItemCounts.highConfidence}/${aiItemCounts.lowConfidence}/${aiItemCounts.unsure}`,
-        `AI 目前畫面高信心/低信心/unsure: ${state.aiReviewStats.highConfidence}/${state.aiReviewStats.lowConfidence}/${state.aiReviewStats.unsure}`,
-        `AI 目前畫面本地候選: ${state.aiReviewStats.localCandidate}`,
-        `AI 已排除(已處理/頁面不存在): ${state.suppressedAiKeys.size}`,
+        `UNSAVE 結果: ${state.aiLoadStatus}`,
+        `UNSAVE 檔案: ${state.aiResultFileName || "未指定"}`,
+        `UNSAVE 產生時間/後端: ${state.aiResultGeneratedAt || "未知"} / ${state.aiResultBackend || "未知"}`,
+        `UNSAVE 來源/摘要: ${state.aiResultSourceFile || "未知"} / ${formatAiResultSummary(state.aiResultSummary)}`,
+        `UNSAVE 總候選/已選取: ${aiItemCounts.reviewable}/${state.aiReviewStats.selected}`,
+        `UNSAVE 目前 DOM 標亮: ${state.aiReviewStats.renderedMatched}`,
+        `UNSAVE 總高信心/低信心/unsure: ${aiItemCounts.highConfidence}/${aiItemCounts.lowConfidence}/${aiItemCounts.unsure}`,
+        `UNSAVE 目前畫面高信心/低信心/unsure: ${state.aiReviewStats.highConfidence}/${state.aiReviewStats.lowConfidence}/${state.aiReviewStats.unsure}`,
+        `UNSAVE 目前畫面本地候選: ${state.aiReviewStats.localCandidate}`,
+        `UNSAVE 已排除(已處理/頁面不存在): ${state.suppressedAiKeys.size}`,
         `取消儲存 已驗證/待刷新/失敗: ${state.unsaveVerifiedKeys.size}/${state.unsaveAttemptedKeys.size}/${state.unsaveFailedKeys.size}`,
         `來源頁面: ${location.pathname}`,
         `診斷 containers/link/time/datetime: ${state.debug.articleCount}/${state.debug.postLinkCount}/${state.debug.timeNodeCount}/${state.debug.datetimeCount}`,
@@ -3328,7 +3328,7 @@
       aiItems: [],
       aiMap: Object.create(null),
       aiIndexMap: new Map(),
-      aiLoadStatus: "未載入 AI 結果",
+      aiLoadStatus: "未載入 UNSAVE 結果",
       aiResultFileName: "",
       aiResultGeneratedAt: "",
       aiResultBackend: "",
@@ -3536,7 +3536,7 @@
     state.aiItems = [];
     state.aiMap = Object.create(null);
     state.aiIndexMap = new Map();
-    state.aiLoadStatus = "未載入 AI 結果";
+    state.aiLoadStatus = "未載入 UNSAVE 結果";
     state.aiResultFileName = "";
     state.aiResultGeneratedAt = "";
     state.aiResultBackend = "";
@@ -3779,7 +3779,7 @@
         const [picked] = await window.showOpenFilePicker({
           multiple: false,
           types: [
-            { description: "AI result JSON", accept: { "application/json": [".json"] } },
+            { description: "UNSAVE result JSON", accept: { "application/json": [".json"] } },
           ],
         });
         await AutoSaveUtils.setNamedHandle(AI_FILE_HANDLE_KEY, picked);
@@ -3814,7 +3814,7 @@
       ].join(";");
 
       panel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">crawl-the-threads · Auto AI Sync</div>
+        <div style="font-weight:600;margin-bottom:6px;">crawl-the-threads · Auto UNSAVE Sync</div>
         <label style="display:flex;gap:6px;align-items:center;margin:4px 0;">
           <input type="checkbox" data-key="autoLoad" /> 自動載入 unsave.json
         </label>

@@ -27,8 +27,32 @@ import sys
 import time
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = raw_value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+load_dotenv(PROJECT_ROOT / ".env")
+
 CHROME_WS: Path | None = Path(os.environ["CHROME_WS_PATH"]) if os.environ.get("CHROME_WS_PATH") else None
-USERSCRIPT = Path(__file__).resolve().parent.parent / "userscripts" / "threads-scriber-auto.user.js"
+USERSCRIPT = PROJECT_ROOT / "userscripts" / "threads-scriber-auto.user.js"
 EDITOR_TITLE_SUBSTR = "Threads Scriber (Auto"
 SAVED_URL_SUBSTR = "/saved"
 
@@ -95,7 +119,16 @@ def push_source(idx: int, source: str) -> int:
         chrome_eval(idx, expr)
     # Commit buffer into CodeMirror
     finalize = (
-        "(()=>{const el=document.querySelector('.CodeMirror');"
+        "(()=>{"
+        "const uuid=(location.hash.match(/nav=([0-9a-f-]{36})/)||[])[1]||'';"
+        "const encodedUuid=btoa(uuid).replace(/\\//g,'_').replace(/\\+/g,'-').replace(/=+$/,'');"
+        "const editors=[...document.querySelectorAll('.CodeMirror')];"
+        "const el=editors.find(cm=>{"
+        "  for(let p=cm;p;p=p.parentElement){"
+        "    if((p.id||'').includes(encodedUuid)) return true;"
+        "  }"
+        "  return false;"
+        "})||editors[0];"
         "if(!el||!el.CodeMirror){delete window.__crawlPushBuf;"
         "return JSON.stringify({error:'no CodeMirror in tab'});}"
         "const buf=window.__crawlPushBuf||'';"

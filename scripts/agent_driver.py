@@ -30,6 +30,30 @@ import sys
 import time
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = raw_value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+load_dotenv(PROJECT_ROOT / ".env")
+
 CHROME_WS: Path | None = Path(os.environ["CHROME_WS_PATH"]) if os.environ.get("CHROME_WS_PATH") else None
 EXPECTED_VERSION = "0.3.0"
 PANEL_ID = "threads-saved-export-panel"
@@ -139,6 +163,8 @@ def cmd_status() -> int:
 
 def cmd_scrape(wait_seconds: float, cutoff: str) -> int:
     idx = find_saved_tab_index()
+    chrome_click(idx, "#" + PANEL_ID + "-clear")
+    print(f"clicked #{PANEL_ID}-clear on tab {idx}")
     fill_expr = (
         "(()=>{const el=document.getElementById('" + PANEL_ID + "-date');"
         "if(!el) return 'no date input';"
@@ -162,7 +188,12 @@ def cmd_scrape(wait_seconds: float, cutoff: str) -> int:
             "const n=m.match(/已收集筆數:\\s*(\\d+)/);"
             "return JSON.stringify({status:s?s[1]:'',count:n?parseInt(n[1],10):0});})()"
         )
-        result = chrome_eval(idx, expr)
+        try:
+            result = chrome_eval(idx, expr)
+        except subprocess.TimeoutExpired:
+            print("WARN: status poll timed out; retrying", file=sys.stderr)
+            time.sleep(3.0)
+            continue
         if isinstance(result, str):
             result = json.loads(result)
         status = (result.get("status") or "").strip()

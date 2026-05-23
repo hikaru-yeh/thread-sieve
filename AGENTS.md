@@ -12,6 +12,10 @@ Invoke `/debug-loop <bug description>` for any bug across the userscript or Pyth
 
 See `DEBUGGING.md` (English) or `DEBUGGING.zh-TW.md` (繁體中文) for the operator handbook.
 
+## README consistency gate
+
+If a code change modifies user-visible behavior, setup, deployment, verification, or agent workflow in a way that differs from the current `README.md`, do not edit `README.md` immediately. First tell the user what README change is needed and propose a short plan; edit `README.md` only after the user confirms.
+
 ## Testing
 
 ```

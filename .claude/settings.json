@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "powershell -NoProfile -File .claude/hooks/check-chrome-debug.ps1",
+            "timeout": 5,
+            "statusMessage": "Checking Chrome remote debugging..."
+          }
+        ]
+      }
+    ]
+  }
+}

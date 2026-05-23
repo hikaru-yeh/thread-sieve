@@ -101,6 +101,15 @@ Invoke-WebRequest http://localhost:9222/json | Select-Object -Expand Content
 
 Should return a JSON list of open tabs.
 
+#### D. Agent hooks guard this preflight
+
+This repo contains local hooks for both agent environments:
+
+- `.claude/settings.json` runs `.claude/hooks/check-chrome-debug.ps1` before Claude Code shell commands.
+- `.codex/hooks.json` runs `.codex/check-chrome-debug.ps1` through `.codex/check-chrome-debug.cmd` before Codex shell commands.
+
+Both hooks only target `agent_driver.py` and `push_userscript.py`. They block those commands when `127.0.0.1:9222` is not reachable, so agents do not fall back to Edge, a fresh non-debug Chrome window, or manual Tampermonkey edits.
+
 ---
 
 ### 1. Python side
@@ -175,6 +184,7 @@ python scripts/agent_driver.py scrape --cutoff 2025-01-01 --wait-seconds 120
 ```
 
 `--cutoff` sets the date input in the panel before clicking 開始抓取.  
+Each `scrape` run first clicks **清空結果** so `catch.json` contains only the current run, not stale panel/localStorage items from an earlier cutoff.
 `--wait-seconds` polls `狀態` until idle (`待機中` / `完成` / `已停止`) or timeout.
 
 #### Step 3 · Wait for pipeline
