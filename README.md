@@ -2,7 +2,7 @@
 
 End-to-end automation for the **scrape Threads bookmarks → classify → unsave AI posts → produce markdown notes** workflow.
 
-Bundles the entire pipeline into a single project that orchestrates two existing repos **without modifying them**:
+Bundles the entire pipeline into a single project that orchestrates the forked userscript here and the sibling markdown-note project:
 
 - [`threads-scriber`](../threads-scriber/) — original userscript (fork lives here)
 - [`PROJECT_threads-to-note`](../PROJECT_threads-to-note/) — markdown note generator (invoked as subprocess)
@@ -20,7 +20,7 @@ Bundles the entire pipeline into a single project that orchestrates two existing
                           ┌───────────────────┴───────────────────┐
                           ▼                                       ▼
    scripts/classify_to_scribe_ai.py            subprocess: python app.py
-   (Gemini classifier, AI+科技 filter)          (PROJECT_threads-to-note)
+   (Gemini classifier, AI+科技 filter)          (PROJECT_threads-to-note; markdown + image OCR)
                           │                                       │
                           ▼                                       ▼
                   unsave.json                          markdown notes
@@ -123,7 +123,7 @@ copy .env.example .env
 # edit .env: fill GEMINI_API_KEY and CHROME_WS_PATH; verify CATCH_PATH / UNSAVE_PATH / MARKDOWN_PATH
 ```
 
-The note project must already be set up (its own `.env`, `THREADS_GEMINI_*` keys, output dir, etc.). See `PROJECT_threads-to-note/README.md`.
+The note project must already be set up (its own `.env`, `THREADS_GEMINI_*` keys, output dir, image OCR settings, etc.). See `PROJECT_threads-to-note/README.md`.
 
 ### 2. Browser side
 
@@ -199,6 +199,8 @@ pipeline starting: items=N
 
 `unsave.json` and markdown notes are both ready at this point.
 
+For posts classified by the note project as `AI` or `Claude Code`, `PROJECT_threads-to-note` may also OCR attached Threads images with Gemini Vision and append a `## 圖片文字` section to the markdown note. OCR is configured in the note project's `.env` with `THREADS_IMAGE_OCR_ENABLED`, `THREADS_GEMINI_OCR_MODEL`, and `THREADS_IMAGE_OCR_CATEGORIES`.
+
 #### Step 4 · Auto AI Sync auto-unsave
 
 The forked userscript polls `unsave.json` every 3 s. When `lastModified` changes it auto-loads the AI classification. If **載入後自動取消儲存** is ticked, the unsave flow starts immediately — no further action needed.
@@ -236,6 +238,8 @@ python scripts/agent_driver.py click stop
 | `DEBOUNCE_SECONDS` | `2.0` | watcher |
 | `POLL_SECONDS` | `1.0` | watcher |
 
+Image OCR settings for markdown output live in the note project's `.env`, not this repository's `.env`.
+
 ### `classify_config.json` — classification logic
 
 Edit this file to customise categories without touching Python.
@@ -271,6 +275,7 @@ Tests cover:
 - **File System Access permission may expire** after a browser restart. The Auto AI Sync panel status will show "handle: not bound" and ignore polls until you re-bind via the button.
 - **Classifier duplication**: this project runs its own Gemini classifier whose categories and hints live in `classify_config.json`. If you change the prompt in `PROJECT_threads-to-note/services/category_classifier.py`, sync the category list in `classify_config.json` manually.
 - **Gemini quota**: each scrape triggers two Gemini-using subprocesses (this project's classifier + the note project's own classifier inside `app.py`). The shared category list is intentional — both run on the full scrape so neither blocks the other.
+- **Markdown image OCR uses the note project**: OCR for `AI` / `Claude Code` markdown notes runs inside `PROJECT_threads-to-note`. Its rendered-page fallback needs Playwright enabled there.
 
 ---
 
