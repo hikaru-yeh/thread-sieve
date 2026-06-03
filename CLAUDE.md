@@ -1,4 +1,4 @@
-# crawl-the-threads — Claude Code instructions
+# ThreadSieve — Claude Code instructions
 
 End-to-end automation for the **scrape Threads bookmarks → classify → unsave AI posts → produce markdown notes** pipeline. Two coupled layers: `userscripts/threads-scriber-auto.user.js` (browser, Tampermonkey) and `scripts/*.py` (Python pipeline). Tests live in `tests/` (pure Python).
 

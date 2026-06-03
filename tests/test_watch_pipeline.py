@@ -78,8 +78,6 @@ def test_run_pipeline_runs_ocr_after_classify_and_notes(monkeypatch, tmp_path):
     catch = tmp_path / "catch.json"
     unsave = tmp_path / "unsave.json"
     markdown_root = tmp_path / "markdown"
-    note_project = tmp_path / "note-project"
-    note_project.mkdir()
 
     class FakeProc:
         def __init__(self, name):
@@ -99,14 +97,36 @@ def test_run_pipeline_runs_ocr_after_classify_and_notes(monkeypatch, tmp_path):
     mod.run_pipeline(
         scribe_path=catch,
         scribe_ai_path=unsave,
-        note_project_path=note_project,
         project_root=Path("project-root"),
     )
 
     launched_names = [call[1] for call in calls if call[0] == "launch"]
     assert launched_names == ["classify", "notes", "ocr"]
     assert calls.index(("wait", "classify")) < launched_names.index("ocr") + 4
+    notes_call = next(call for call in calls if call[0] == "launch" and call[1] == "notes")
+    assert notes_call[2] == Path("project-root")
+    assert notes_call[4] == [sys.executable, str(Path("project-root") / "app.py")]
+    assert notes_call[3]["THREADS_BOOKMARK_INPUT"] == str(catch)
+    assert notes_call[3]["THREADS_MARKDOWN_OUTPUT"] == str(markdown_root)
     ocr_call = next(call for call in calls if call[0] == "launch" and call[1] == "ocr")
     assert "--input" in ocr_call[4]
     assert "--classifications" in ocr_call[4]
     assert "--markdown-root" in ocr_call[4]
+
+
+def test_resolve_markdown_output_path_defaults_inside_project(monkeypatch):
+    monkeypatch.delenv("MARKDOWN_OUTPUT_PATH", raising=False)
+    monkeypatch.delenv("THREADS_MARKDOWN_OUTPUT", raising=False)
+
+    assert mod.resolve_markdown_output_path({}) == mod.PROJECT_ROOT / "output"
+
+
+def test_resolve_markdown_output_path_reads_config_paths(tmp_path, monkeypatch):
+    monkeypatch.delenv("MARKDOWN_OUTPUT_PATH", raising=False)
+    monkeypatch.delenv("THREADS_MARKDOWN_OUTPUT", raising=False)
+    markdown_root = tmp_path / "notes"
+
+    assert mod.resolve_markdown_output_path(
+        {},
+        {"paths": {"markdown-output-root": str(markdown_root)}},
+    ) == markdown_root

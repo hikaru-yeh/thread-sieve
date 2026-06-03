@@ -6,16 +6,43 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Callable
 from urllib import request
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from _gemini_client import GeminiClient
+from note_generator.infrastructure.chandra_ocr import ChandraOcrEngine
+from note_generator.infrastructure.gemini_client import GeminiClient
+from note_generator.config import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_INPUT_PATH,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_UNSAVE_PATH,
+    load_json_config,
+    read_path_setting,
+    resolve_json_config_path,
+)
 
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_OCR_BACKEND = "gemini"
+DEFAULT_OCR_METHOD = "vllm"
+DEFAULT_MAX_OUTPUT_TOKENS = 12384
 DEFAULT_TRIGGER_CATEGORIES = {"AI", "Claude Code"}
-OCR_PROMPT = "請辨識並輸出這張圖片中的所有文字，保留原始排版，不要加任何解釋。"
+DEFAULT_PROMPT_TYPE = "ocr_layout"
+DEFAULT_MODEL = "gemini-2.5-flash"
+OCR_PROMPT = (
+    "分析這張圖片的內容，以結構化 Markdown 格式輸出。規則：\n"
+    "1. 程式碼截圖 → 用 fenced code block（附語言標籤），保留縮排\n"
+    "2. 終端機/命令列輸出 → 用 ```text 或 ```bash code block\n"
+    "3. 對話截圖（聊天、推文、留言串）→ 用引言格式（> ），標明發言者\n"
+    "4. 圖表/流程圖 → 先用一句話描述，再列出關鍵節點或數據\n"
+    "5. 一般文字 → 用適當的標題、列表、段落組織\n"
+    "6. 混合內容 → 依各區塊類型分別處理\n"
+    "直接輸出 Markdown，不要加前言或解釋。"
+)
 _OCR_SECTION_RE = re.compile(r"\n*## 圖片文字\n\n.*?(?=\n## |\Z)", re.DOTALL)
 
 
@@ -46,6 +73,56 @@ def read_csv_set(value: str, default: set[str]) -> set[str]:
     if not value.strip():
         return set(default)
     return {part.strip() for part in value.split(",") if part.strip()}
+
+
+def read_configured_set(value: object, default: set[str]) -> set[str]:
+    if isinstance(value, list):
+        return {str(part).strip() for part in value if str(part).strip()}
+    if isinstance(value, str):
+        return read_csv_set(value, default)
+    return set(default)
+
+
+def read_int_env(*names: str, default: int) -> int:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return int(value)
+    return default
+
+
+def read_ocr_config(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    config = load_json_config(path)
+    if not isinstance(config, dict):
+        return {}
+    image_ocr = config.get("image-ocr", {})
+    return image_ocr if isinstance(image_ocr, dict) else {}
+
+
+def read_config_str(config: dict, key: str, default: str) -> str:
+    value = config.get(key)
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text or default
+
+
+def read_config_bool(config: dict, key: str, default: bool = False) -> bool:
+    value = config.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    return default
+
+
+def read_config_int(config: dict, key: str, default: int) -> int:
+    value = config.get(key)
+    if value is None or str(value).strip() == "":
+        return default
+    return int(value)
 
 
 def select_trigger_posts(posts: list[dict], classifications: dict, trigger_categories: set[str]) -> list[dict]:
@@ -143,11 +220,65 @@ def download_image(url: str) -> bytes:
         return response.read()
 
 
-def ocr_post_images(*, post_url: str, client: GeminiClient, model: str, headless: bool = True) -> list[str]:
+def build_gemini_ocr_image(*, api_key: str, model: str = DEFAULT_MODEL) -> Callable[[str], str]:
+    if not api_key.strip():
+        raise RuntimeError("GEMINI_API_KEY missing. Set in .env or pass --api-key.")
+    client = GeminiClient(api_key=api_key)
+
+    def ocr_image(image_url: str) -> str:
+        return client.generate_text_from_image(download_image(image_url), OCR_PROMPT, model=model)
+
+    return ocr_image
+
+
+def build_chandra_ocr_image(
+    *,
+    method: str = DEFAULT_OCR_METHOD,
+    prompt_type: str = DEFAULT_PROMPT_TYPE,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    include_headers_footers: bool = False,
+) -> Callable[[str], str]:
+    engine = ChandraOcrEngine(
+        method=method,
+        prompt_type=prompt_type,
+        max_output_tokens=max_output_tokens,
+        include_headers_footers=include_headers_footers,
+    )
+
+    def ocr_image(image_url: str) -> str:
+        return engine.generate_markdown(download_image(image_url))
+
+    return ocr_image
+
+
+def build_ocr_image(
+    *,
+    backend: str = DEFAULT_OCR_BACKEND,
+    api_key: str = "",
+    model: str = DEFAULT_MODEL,
+    ocr_method: str = DEFAULT_OCR_METHOD,
+    prompt_type: str = DEFAULT_PROMPT_TYPE,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    include_headers_footers: bool = False,
+) -> Callable[[str], str]:
+    normalized_backend = backend.strip().lower() or DEFAULT_OCR_BACKEND
+    if normalized_backend == "gemini":
+        return build_gemini_ocr_image(api_key=api_key, model=model)
+    if normalized_backend == "chandra":
+        return build_chandra_ocr_image(
+            method=ocr_method,
+            prompt_type=prompt_type,
+            max_output_tokens=max_output_tokens,
+            include_headers_footers=include_headers_footers,
+        )
+    raise RuntimeError(f"Unsupported IMAGE_OCR_BACKEND: {backend!r}. Use 'gemini' or 'chandra'.")
+
+
+def ocr_post_images(*, post_url: str, ocr_image: Callable[[str], str], headless: bool = True) -> list[str]:
     texts: list[str] = []
     for image_url in fetch_image_urls_with_playwright(post_url, headless=headless):
         try:
-            text = client.generate_text_from_image(download_image(image_url), OCR_PROMPT, model=model)
+            text = ocr_image(image_url)
         except Exception:
             continue
         if text.strip():
@@ -160,10 +291,15 @@ def run(
     input_path: Path,
     classifications_path: Path,
     markdown_root: Path,
-    api_key: str,
-    model: str,
     trigger_categories: set[str],
     headless: bool,
+    api_key: str = "",
+    model: str = DEFAULT_MODEL,
+    ocr_backend: str = DEFAULT_OCR_BACKEND,
+    ocr_method: str = DEFAULT_OCR_METHOD,
+    prompt_type: str = DEFAULT_PROMPT_TYPE,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    include_headers_footers: bool = False,
 ) -> dict:
     posts = read_json(input_path)
     if not isinstance(posts, list):
@@ -172,7 +308,15 @@ def run(
     if not isinstance(classifications, dict):
         raise ValueError(f"{classifications_path} must contain a JSON object")
 
-    client = GeminiClient(api_key=api_key)
+    ocr_image = build_ocr_image(
+        backend=ocr_backend,
+        api_key=api_key,
+        model=model,
+        ocr_method=ocr_method,
+        prompt_type=prompt_type,
+        max_output_tokens=max_output_tokens,
+        include_headers_footers=include_headers_footers,
+    )
     selected = select_trigger_posts(posts, classifications, trigger_categories)
     updated = 0
     skipped = 0
@@ -185,7 +329,7 @@ def run(
         if markdown_path is None:
             skipped += 1
             continue
-        ocr_texts = ocr_post_images(post_url=post_url, client=client, model=model, headless=headless)
+        ocr_texts = ocr_post_images(post_url=post_url, ocr_image=ocr_image, headless=headless)
         if not ocr_texts:
             skipped += 1
             continue
@@ -197,11 +341,17 @@ def run(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OCR Threads post images and append ## 圖片文字 to markdown notes.")
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--classifications", required=True)
-    parser.add_argument("--markdown-root", required=True)
+    parser.add_argument("--input", default="")
+    parser.add_argument("--classifications", default="")
+    parser.add_argument("--markdown-root", default="")
     parser.add_argument("--api-key", default="")
     parser.add_argument("--model", default="")
+    parser.add_argument("--config", default="")
+    parser.add_argument("--ocr-backend", default="")
+    parser.add_argument("--ocr-method", default="")
+    parser.add_argument("--prompt-type", default="")
+    parser.add_argument("--max-output-tokens", type=int, default=None)
+    parser.add_argument("--include-headers-footers", action="store_true")
     parser.add_argument("--trigger-categories", default="")
     parser.add_argument("--env-file", default=".env")
     parser.add_argument("--headed", action="store_true")
@@ -211,24 +361,62 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     load_dotenv(Path(args.env_file))
+    config_path = resolve_json_config_path(args.config)
+    config_data = load_json_config(config_path)
+    ocr_config = read_ocr_config(config_path)
+    max_output_tokens = args.max_output_tokens
+    if max_output_tokens is None:
+        max_output_tokens = read_int_env(
+            "IMAGE_OCR_MAX_OUTPUT_TOKENS",
+            "MAX_OUTPUT_TOKENS",
+            default=read_config_int(ocr_config, "max-output-tokens", DEFAULT_MAX_OUTPUT_TOKENS),
+        )
     api_key = args.api_key or os.environ.get("GEMINI_API_KEY", "")
-    if not api_key.strip():
-        print("ERROR: GEMINI_API_KEY missing. Set in .env or pass --api-key.", file=sys.stderr)
-        return 2
     model = args.model or os.environ.get("IMAGE_OCR_MODEL", DEFAULT_MODEL)
+    configured_categories = read_configured_set(ocr_config.get("trigger-categories"), DEFAULT_TRIGGER_CATEGORIES)
     trigger_categories = read_csv_set(
         args.trigger_categories or os.environ.get("IMAGE_OCR_CATEGORIES", ""),
-        DEFAULT_TRIGGER_CATEGORIES,
+        configured_categories,
     )
-    summary = run(
-        input_path=Path(args.input),
-        classifications_path=Path(args.classifications),
-        markdown_root=Path(args.markdown_root),
-        api_key=api_key,
-        model=model,
-        trigger_categories=trigger_categories,
-        headless=not args.headed,
-    )
+    try:
+        summary = run(
+            input_path=Path(
+                args.input
+                or os.environ.get("CATCH_PATH")
+                or read_path_setting(config_data, "catch-json", str(DEFAULT_INPUT_PATH))
+            ),
+            classifications_path=Path(
+                args.classifications
+                or os.environ.get("UNSAVE_PATH")
+                or read_path_setting(config_data, "unsave-json", str(DEFAULT_UNSAVE_PATH))
+            ),
+            markdown_root=Path(
+                args.markdown_root
+                or os.environ.get("THREADS_MARKDOWN_OUTPUT")
+                or os.environ.get("MARKDOWN_OUTPUT_PATH")
+                or read_path_setting(config_data, "markdown-output-root", str(DEFAULT_OUTPUT_DIR))
+            ),
+            api_key=api_key,
+            model=model,
+            ocr_backend=args.ocr_backend
+            or os.environ.get("IMAGE_OCR_BACKEND", "")
+            or read_config_str(ocr_config, "backend", DEFAULT_OCR_BACKEND),
+            ocr_method=args.ocr_method
+            or os.environ.get("IMAGE_OCR_METHOD", "")
+            or read_config_str(ocr_config, "method", DEFAULT_OCR_METHOD),
+            prompt_type=args.prompt_type
+            or os.environ.get("IMAGE_OCR_PROMPT_TYPE", "")
+            or read_config_str(ocr_config, "prompt-type", DEFAULT_PROMPT_TYPE),
+            max_output_tokens=max_output_tokens,
+            include_headers_footers=args.include_headers_footers
+            or os.environ.get("IMAGE_OCR_INCLUDE_HEADERS_FOOTERS", "").strip().lower() in {"true", "1", "yes", "on"}
+            or read_config_bool(ocr_config, "include-headers-footers"),
+            trigger_categories=trigger_categories,
+            headless=not args.headed,
+        )
+    except RuntimeError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
     print(json.dumps(summary, ensure_ascii=False))
     return 0
 

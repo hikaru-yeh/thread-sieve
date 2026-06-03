@@ -1,11 +1,11 @@
 # Spec: Backfill Image OCR for Existing Threads Markdown
 
 ## Assumptions
-- This feature belongs in `crawl-the-threads`, not in `PROJECT_threads-to-note`.
+- This feature belongs in `threads-sieve`, not in `PROJECT_threads-to-note`.
 - The command is an agent-assisted backfill tool: the user gives a file or folder, the script scans markdown notes, filters likely OCR-missing stubs, fetches Threads images from each note's frontmatter URL, OCRs those images, and updates the existing markdown file.
 - The first implementation should be deterministic and testable. "內文不夠詳細" should use a configurable rule-based heuristic, not a hidden LLM judgment.
 - Existing notes should be preserved. The tool may insert or replace only the `## 圖片文字` section, and by default it skips files that already have that section.
-- OCR should reuse the crawl-side implementation added for the live pipeline, rather than re-creating the old `threads-to-note` feature.
+- OCR should reuse the ThreadSieve-side implementation added for the live pipeline, rather than re-creating the old `threads-to-note` feature.
 
 ## Objective
 Build a batch backfill script at `scripts/backfill_image_ocr.py` for markdown files that were already written before image OCR existed.
@@ -15,7 +15,7 @@ The primary user is the local agent/operator maintaining the knowledge wiki. The
 Acceptance criteria:
 - The script scans a file or directory of `.md` files.
 - It selects default candidates only when frontmatter has `status: stub`, no existing `## 圖片文字`, a Threads URL exists in frontmatter key `網址` or `url`, and the markdown body is below the detail threshold.
-- It fetches Threads images using the crawl-side OCR flow and OCRs them with the existing Gemini image OCR client.
+- It fetches Threads images using the ThreadSieve-side OCR flow and OCRs them with the existing Gemini image OCR client.
 - It inserts the generated `## 圖片文字` section before `## Sources`.
 - It writes JSONL logs for `processed`, `skipped`, `failed`, and `no_images`.
 - It supports `--dry-run` without modifying files.
@@ -27,7 +27,7 @@ Acceptance criteria:
 - Existing OCR modules to reuse:
   - `scripts/image_ocr_to_markdown.py` for Threads image discovery/OCR helpers where practical.
   - `scripts/_gemini_client.py` for Gemini Vision OCR calls.
-- Existing browser dependency: Playwright, already used by crawl-side OCR.
+- Existing browser dependency: Playwright, already used by ThreadSieve-side OCR.
 - Configuration:
   - Gemini API key should come from existing environment/config patterns.
   - No hardcoded secrets.
@@ -74,7 +74,7 @@ pytest tests/ -q
 ```text
 scripts/
   backfill_image_ocr.py        # New batch backfill CLI and pure helper functions
-  image_ocr_to_markdown.py     # Existing crawl-side Threads image/OCR flow to reuse
+  image_ocr_to_markdown.py     # Existing ThreadSieve-side Threads image/OCR flow to reuse
   _gemini_client.py            # Existing Gemini image OCR client
 
 tests/
@@ -149,7 +149,7 @@ Section insertion requirements:
 ## OCR Flow
 For each selected candidate:
 - Fetch the Threads post URL from frontmatter.
-- Use the crawl-side Threads image discovery flow to find post image URLs.
+- Use the ThreadSieve-side Threads image discovery flow to find post image URLs.
 - If no image URLs are found, write a `no_images` log entry and leave the file unchanged.
 - For each image, use the existing Gemini image OCR client.
 - If OCR returns usable text for at least one image, insert or replace the markdown section.

@@ -13,7 +13,7 @@ tab list parser, eval helper, /saved tab finder.
 
 Exit codes:
   0  push + save + reload succeeded
-  2  prerequisites missing (CHROME_WS_PATH or Tampermonkey editor tab)
+  2  prerequisites missing (chrome-ws CLI path or Tampermonkey editor tab)
   3  save click failed
   4  /saved tab reload failed
 """
@@ -28,6 +28,9 @@ import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from note_generator.config import load_json_config, read_path_setting
 
 
 def load_dotenv(path: Path) -> None:
@@ -51,9 +54,19 @@ def load_dotenv(path: Path) -> None:
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-CHROME_WS: Path | None = Path(os.environ["CHROME_WS_PATH"]) if os.environ.get("CHROME_WS_PATH") else None
+
+def resolve_chrome_ws_path() -> Path | None:
+    configured = os.environ.get("CHROME_WS_PATH", "").strip()
+    if configured:
+        return Path(configured)
+
+    path = read_path_setting(load_json_config(), "chrome-ws-cli", "")
+    return Path(path) if path else None
+
+
+CHROME_WS: Path | None = resolve_chrome_ws_path()
 USERSCRIPT = PROJECT_ROOT / "userscripts" / "threads-scriber-auto.user.js"
-EDITOR_TITLE_SUBSTR = "Threads Scriber (Auto"
+EDITOR_TITLE_SUBSTRS = ("ThreadSieve (Auto", "Threads Scriber (Auto")
 SAVED_URL_SUBSTR = "/saved"
 
 
@@ -75,11 +88,15 @@ def list_tabs() -> list[tuple[str, str, str]]:
 
 
 def find_editor_tab(tabs: list[tuple[str, str, str]]) -> tuple[int, str]:
-    matches = [(i, url) for i, (_id, url, title) in enumerate(tabs) if EDITOR_TITLE_SUBSTR in title]
+    matches = [
+        (i, url)
+        for i, (_id, url, title) in enumerate(tabs)
+        if any(substr in title for substr in EDITOR_TITLE_SUBSTRS)
+    ]
     if not matches:
         print(
-            f"ERROR: no Tampermonkey editor tab with title containing {EDITOR_TITLE_SUBSTR!r}.\n"
-            "Open the Tampermonkey dashboard and click into the 'Threads Scriber (Auto, crawl-the-threads)' script once.",
+            f"ERROR: no Tampermonkey editor tab with title containing one of {EDITOR_TITLE_SUBSTRS!r}.\n"
+            "Open the Tampermonkey dashboard and click into the 'ThreadSieve (Auto)' script once.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -229,8 +246,8 @@ def main() -> int:
 
     if not CHROME_WS or not CHROME_WS.exists():
         print(
-            f"ERROR: CHROME_WS_PATH not set or path not found ({CHROME_WS}).\n"
-            "Set CHROME_WS_PATH in .env to the chrome-ws CLI (see README setup, section 0).",
+            f"ERROR: chrome-ws CLI path not set or path not found ({CHROME_WS}).\n"
+            "Set paths.chrome-ws-cli in config.json (see README setup, section 0).",
             file=sys.stderr,
         )
         return 2

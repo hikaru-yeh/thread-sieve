@@ -1,11 +1,10 @@
-# crawl-the-threads
+# ThreadSieve
 
-End-to-end automation for the **scrape Threads bookmarks → classify → unsave AI posts → produce markdown notes** workflow.
+[繁體中文](README.zh-TW.md)
 
-Bundles the entire pipeline into a single project that orchestrates the forked userscript here and the sibling markdown-note project:
+ThreadSieve is a local automation pipeline that turns Threads saved posts into categorized markdown notes, with optional AI-post cleanup and image OCR.
 
-- [`threads-scriber`](../threads-scriber/) — original userscript (fork lives here)
-- [`PROJECT_threads-to-note`](../PROJECT_threads-to-note/) — markdown note generator (invoked as subprocess)
+Two coupled layers: `userscripts/threads-scriber-auto.user.js` (browser, Tampermonkey) and `scripts/*.py` (Python pipeline).
 
 ---
 
@@ -19,8 +18,8 @@ Bundles the entire pipeline into a single project that orchestrates the forked u
                                               │
                           ┌───────────────────┴───────────────────┐
                           ▼                                       ▼
-   scripts/classify_to_scribe_ai.py            subprocess: python app.py
-   (Gemini classifier, AI+科技 filter)          (PROJECT_threads-to-note markdown writer)
+   scripts/classify_to_scribe_ai.py            local app.py
+   (Gemini classifier, AI+科技 filter)          (markdown note generator)
                           │                                       │
                           ▼                                       ▼
                   unsave.json                          markdown notes
@@ -28,7 +27,7 @@ Bundles the entire pipeline into a single project that orchestrates the forked u
                           └──────────────┬────────────────────────┘
                                          ▼
                     scripts/image_ocr_to_markdown.py
-                    (Gemini Vision OCR → ## 圖片文字)
+                    (image OCR → ## 圖片文字)
                           │
                           ▼ (FS Access API poll lastModified)
    forked userscript: auto-load + auto-unsave
@@ -70,32 +69,56 @@ Verify Node can run it:
 node "C:\Users\<you>\.claude\plugins\cache\superpowers-marketplace\superpowers-chrome\2.1.0\skills\browsing\chrome-ws" --help
 ```
 
-#### B. Set `CHROME_WS_PATH` in `.env`
+#### B. Set `paths.chrome-ws-cli` in `config.json`
 
-`agent_driver.py` requires `CHROME_WS_PATH` — there is no default. Set it in `.env`:
+`agent_driver.py` and `push_userscript.py` require the `chrome-ws` CLI path. Set it in `config.json`:
 
-```dotenv
-CHROME_WS_PATH=C:\Users\<you>\.claude\plugins\cache\superpowers-marketplace\superpowers-chrome\2.1.0\skills\browsing\chrome-ws
+```json
+"paths": {
+  "chrome-ws-cli": "C:/Users/<you>/.claude/plugins/cache/superpowers-marketplace/superpowers-chrome/2.1.0/skills/browsing/chrome-ws"
+}
 ```
+
+`CHROME_WS_PATH` is still accepted as a compatibility override, but new setups should use `config.json`.
 
 #### C. Enable Chrome remote debugging
 
 Chrome must be launched with `--remote-debugging-port=9222` **before** running any `agent_driver.py` commands.
 
-**Option 1 — shortcut (recommended)**
+Chrome 136+ requires remote debugging to use a non-default user data directory. That directory is a separate Chrome profile, so extensions and login cookies live there. Use the same `--user-data-dir` every time; otherwise Chrome starts with a fresh profile and you will need to install Tampermonkey and log in again.
 
-1. Copy the Chrome shortcut on your desktop / taskbar.
-2. Right-click → Properties → Target, append ` --remote-debugging-port=9222`.
-3. Always open Chrome through this shortcut.
+**Option 1 — PowerShell launcher**
 
-```
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
-```
-
-**Option 2 — PowerShell one-liner (temporary)**
+Close all existing Chrome windows first. If Chrome is already running without the flag, Windows may reuse that process and the debugging port will not open.
 
 ```powershell
-Start-Process "chrome.exe" "--remote-debugging-port=9222"
+$profileDir = Join-Path $env:LOCALAPPDATA "ThreadSieve\ChromeDebugProfile"
+New-Item -ItemType Directory -Force $profileDir | Out-Null
+Start-Process "chrome.exe" -ArgumentList @(
+  "--remote-debugging-port=9222",
+  "--user-data-dir=`"$profileDir`"",
+  "https://www.threads.com/saved"
+)
+```
+
+If `chrome.exe` is not found, use the full Chrome path:
+
+```powershell
+Start-Process "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" -ArgumentList @(
+  "--remote-debugging-port=9222",
+  "--user-data-dir=`"$profileDir`"",
+  "https://www.threads.com/saved"
+)
+```
+
+**Option 2 — shortcut (recommended for daily use)**
+
+1. Copy the Chrome shortcut on your desktop / taskbar.
+2. Right-click → Properties → Target, append ` --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\ThreadSieve\ChromeDebugProfile" https://www.threads.com/saved`.
+3. Always open Chrome through this shortcut, then install Tampermonkey and log in to Threads once inside this debug profile.
+
+```
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\ThreadSieve\ChromeDebugProfile" https://www.threads.com/saved
 ```
 
 Verify the port is open:
@@ -120,16 +143,17 @@ Both hooks only target `agent_driver.py` and `push_userscript.py`. They block th
 ### 1. Python side
 
 ```powershell
-cd path\to\crawl-the-threads
+cd path\to\threads-sieve
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 playwright install chromium
 copy .env.example .env
-# edit .env: fill GEMINI_API_KEY and CHROME_WS_PATH; verify CATCH_PATH / UNSAVE_PATH / MARKDOWN_PATH / MARKDOWN_OUTPUT_PATH
+# edit .env: fill GEMINI_API_KEY
+# edit config.json: verify paths, categories, unsaved-categories, and image-ocr
 ```
 
-The note project must already be set up enough to run `python app.py`. `crawl-the-threads` owns the image OCR step and writes OCR text back into the markdown output after the note subprocess finishes.
+ThreadSieve includes its own markdown note generator at `app.py`; it no longer calls a sibling `PROJECT_threads-to-note` repo. Markdown notes are written to `config.json` → `paths.markdown-output-root` (default: `output`).
 
 ### 2. Browser side
 
@@ -138,8 +162,8 @@ The note project must already be set up enough to run `python app.py`. `crawl-th
 3. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome / Edge.
 4. Disable the original `threads-scriber.user.js` if it is installed.
 5. Open `userscripts/threads-scriber-auto.user.js` and click "Install" in Tampermonkey.
-6. Reload the `/saved` tab. A floating panel "crawl-the-threads · Auto AI Sync" appears bottom-right.
-7. In the **Threads Scriber panel**: click **設定自動存檔** → pick `data/catch.json`. (Write permission, persists across reloads.)
+6. Reload the `/saved` tab. A floating panel "ThreadSieve · Auto AI Sync" appears bottom-right.
+7. In the **ThreadSieve panel**: click **設定自動存檔** → pick `data/catch.json`. (Write permission, persists across reloads.)
 8. In the **Auto AI Sync panel**: click **綁定 unsave.json** → pick `data/unsave.json`. (Read permission, one-time per profile.)
 9. Tick **自動載入 unsave.json** and **載入後自動取消儲存** when ready for the fully automated flow. The **立即檢查** button forces one AI classification load; if it succeeds, the small Auto AI Sync panel closes so it no longer covers the main panel.
 10. Confirm setup: `python scripts/agent_driver.py probe` should print `OK: panel ready for agent-driven scrape`.
@@ -151,7 +175,7 @@ The note project must already be set up enough to run `python app.py`. `crawl-th
 ### Terminal A — start the watcher (keep running)
 
 ```powershell
-cd path\to\crawl-the-threads
+cd path\to\threads-sieve
 .\start_pipeline.ps1
 ```
 
@@ -205,7 +229,7 @@ pipeline starting: items=N
 
 `unsave.json` and markdown notes are both ready at this point.
 
-After `classify` and `notes` finish, `scripts/image_ocr_to_markdown.py` reads this run's `catch.json` and `unsave.json`. For posts whose classification reason is `AI` or `Claude Code`, it renders the Threads post with Playwright, OCRs attached images with Gemini Vision, and appends a `## 圖片文字` section to the matching markdown note.
+After `classify` and `notes` finish, `scripts/image_ocr_to_markdown.py` reads this run's `catch.json` and `unsave.json`. For posts whose classification reason matches `config.json` → `image-ocr.trigger-categories`, it renders the Threads post with Playwright, OCRs attached images, and appends a `## 圖片文字` section to the matching markdown note. Gemini OCR is the default backend; Chandra can be selected in `config.json`.
 
 #### Step 4 · Auto AI Sync auto-unsave
 
@@ -213,7 +237,7 @@ The forked userscript polls `unsave.json` every 3 s. When `lastModified` changes
 
 To verify the load happened, check the Auto AI Sync panel status line; it should show the loaded `generatedAt` timestamp and the candidate count. You can also click **立即檢查** to force one load; after a successful check, the small panel closes. `agent_driver.py probe` still works after that because the userscript exposes the bound-handle status on the page.
 
-Manual export, manual AI classification loading, manual selection, and debug tools are still available in the Threads Scriber panel, but they are collapsed under **手動工具** and **診斷** to keep the normal workflow uncluttered.
+Manual export, manual AI classification loading, manual selection, and debug tools are still available in the ThreadSieve panel, but they are collapsed under **手動工具** and **診斷** to keep the normal workflow uncluttered.
 
 ---
 
@@ -231,7 +255,7 @@ python scripts/agent_driver.py click stop
 
 ## Backfill existing markdown image OCR
 
-Use `scripts/backfill_image_ocr.py` when older markdown notes were already written before image OCR existed. The tool scans a markdown file or folder, finds likely OCR-missing stubs, fetches the Threads post images, OCRs them with Gemini Vision, and inserts `## 圖片文字` before `## Sources`.
+Use `scripts/backfill_image_ocr.py` when older markdown notes were already written before image OCR existed. The tool scans a markdown file or folder, finds likely OCR-missing stubs, fetches the Threads post images, OCRs them with the configured image OCR backend, and inserts `## 圖片文字` before `## Sources`.
 
 Default candidate rules:
 
@@ -240,16 +264,30 @@ Default candidate rules:
 - the note does not already contain `## 圖片文字`
 - the non-frontmatter body is shorter than `--min-content-chars` (default: `800`)
 
-Preview a folder without fetching images, calling Gemini, or editing files:
+Preview a folder without fetching images, calling the OCR backend, or editing files:
 
 ```powershell
 python scripts/backfill_image_ocr.py --path "<wiki-folder>" --dry-run
 ```
 
-Run backfill for one file:
+For date-based patch work, ask the agent to filter files first, then run the script per matched file. `backfill_image_ocr.py` intentionally does not include a modified-date filter because date patching is an occasional repair workflow, not the normal batch mode.
 
-```powershell
-python scripts/backfill_image_ocr.py --path "<wiki-folder>\AI Agent\example.md"
+Example agent prompt:
+
+```text
+Use `scripts/backfill_image_ocr.py`.
+
+Recursively scan:
+<wiki-folder>
+
+Only select `.md` files whose filesystem LastWriteTime date is YYYY-MM-DD,
+then run `scripts/backfill_image_ocr.py --path "<file>"` for each selected file.
+
+Do not pass the entire wiki folder to the script for this date-scoped repair.
+Use the script defaults: process only `status: stub`, short body, frontmatter `網址` or `url`,
+and no existing `## 圖片文字`.
+
+Write a JSONL log and report processed / skipped / failed / no_images.
 ```
 
 Write an explicit JSONL log:
@@ -264,43 +302,75 @@ Each considered file gets one JSONL event with `processed`, `skipped`, `failed`,
 
 ## Configuration
 
-### `.env` — secrets and machine-specific paths
+### `config.json` — paths, classification logic, and OCR behavior
+
+Edit this file to customise local paths and per-user categories without touching Python.
 
 | Key | Default | Used by |
 | --- | --- | --- |
-| `CATCH_PATH` | `data/catch.json` | classifier, watcher, userscript handle |
-| `UNSAVE_PATH` | `data/unsave.json` | classifier, watcher, userscript handle |
-| `MARKDOWN_PATH` | `..\PROJECT_threads-to-note` | watcher (subprocess cwd) |
-| `MARKDOWN_OUTPUT_PATH` | _optional_ | OCR step markdown root; if blank, watcher tries `THREADS_MARKDOWN_OUTPUT` from `MARKDOWN_PATH\.env` |
-| `GEMINI_API_KEY` | _required_ | classifier |
-| `CHROME_WS_PATH` | _required_ | agent_driver — path to the `chrome-ws` CLI |
+| `paths.catch-json` | `data/catch.json` | classifier, watcher, userscript handle |
+| `paths.unsave-json` | `data/unsave.json` | classifier, watcher, userscript handle |
+| `paths.markdown-output-root` | `output` | markdown note output root; ThreadSieve writes notes here and OCR scans this tree |
+| `paths.chrome-ws-cli` | _required for browser automation_ | `agent_driver.py`, `push_userscript.py` |
+| `categories` | project example list | Ordered list of categories the Gemini classifier can output |
+| `unsaved-categories` | project example subset | Subset of `categories` that map to `decision="ai"` — posts in these categories get auto-unsaved |
+| `image-ocr` | see below | Non-secret image OCR behavior: backend, Chandra method, prompt type, max output tokens, headers/footers toggle, and trigger categories |
+| `hints` | project example rules | Free-text rules injected into the Gemini prompt to guide priority decisions between categories |
+
+Path values may be relative to the project root or absolute local paths. For Windows paths in JSON, forward slashes are easiest: `C:/Users/<you>/...`.
+
+```json
+"paths": {
+  "catch-json": "data/catch.json",
+  "unsave-json": "data/unsave.json",
+  "markdown-output-root": "output",
+  "chrome-ws-cli": "C:/Users/<you>/.claude/plugins/cache/superpowers-marketplace/superpowers-chrome/2.1.0/skills/browsing/chrome-ws"
+}
+```
+
+Override `unsaved-categories` for a single run: `python scripts/classify_to_scribe_ai.py --unsaved-categories AI,科技`
+
+Default OCR config:
+
+```json
+"image-ocr": {
+  "backend": "gemini",
+  "method": "vllm",
+  "prompt-type": "ocr_layout",
+  "max-output-tokens": 12384,
+  "include-headers-footers": false,
+  "trigger-categories": ["AI", "Claude Code"]
+}
+```
+
+Set `"backend": "chandra"` to use Chandra. With `"method": "vllm"`, Chandra calls the OpenAI-compatible endpoint configured by the `VLLM_*` keys in `.env`. CLI flags such as `--ocr-backend chandra` and environment variables such as `IMAGE_OCR_BACKEND=chandra` still work as one-off overrides.
+
+`CATCH_PATH`, `UNSAVE_PATH`, `MARKDOWN_OUTPUT_PATH`, `THREADS_MARKDOWN_OUTPUT`, and `CHROME_WS_PATH` are still accepted as compatibility aliases, but new setups should use `config.json`.
+
+### `.env` — secrets and runtime tuning
+
+| Key | Default | Used by |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | _required_ | classifier, and image OCR when `image-ocr.backend` is `gemini` |
 | `CLASSIFIER_MODEL` | `gemini-2.5-flash` | classifier |
 | `IMAGE_OCR_ENABLED` | `true` | OCR step toggle |
-| `IMAGE_OCR_MODEL` | `gemini-2.5-flash` | Gemini Vision OCR model |
-| `IMAGE_OCR_CATEGORIES` | `AI,Claude Code` | comma-separated classification reasons that trigger markdown OCR |
+| `IMAGE_OCR_MODEL` | `gemini-2.5-flash` | Gemini image OCR model when `image-ocr.backend` is `gemini` |
+| `MODEL_CHECKPOINT` | `datalab-to/chandra-ocr-2` | Chandra model setting when `image-ocr.backend` is `chandra` |
+| `MAX_OUTPUT_TOKENS` | `12384` | Chandra max output tokens; can be overridden by `image-ocr.max-output-tokens` |
+| `VLLM_API_BASE` | `http://localhost:8000/v1` | Chandra vLLM OpenAI-compatible endpoint |
+| `VLLM_MODEL_NAME` | `chandra` | Chandra vLLM served model name |
+| `VLLM_GPUS` | `0` | Chandra vLLM server GPU selection |
 | `DEBOUNCE_SECONDS` | `2.0` | watcher |
 | `POLL_SECONDS` | `1.0` | watcher |
 
-If `MARKDOWN_OUTPUT_PATH` is not set and the note project `.env` does not define `THREADS_MARKDOWN_OUTPUT`, OCR is skipped and the watcher logs the reason.
-
-### `classify_config.json` — classification logic
-
-Edit this file to customise categories without touching Python.
-
-| Key | Description |
-| --- | --- |
-| `categories` | Ordered list of categories the Gemini classifier can output |
-| `unsaved-categories` | Subset of `categories` that map to `decision="ai"` — posts in these categories get auto-unsaved |
-| `hints` | Free-text rules injected into the Gemini prompt to guide priority decisions between categories |
-
-Override `unsaved-categories` for a single run: `python scripts/classify_to_scribe_ai.py --unsaved-categories AI,科技`
+The public Chandra defaults in `.env.example` come from [datalab-to/chandra](https://github.com/datalab-to/chandra); check that repo for the latest upstream settings.
 
 ---
 
 ## Tests
 
 ```powershell
-cd path\to\crawl-the-threads
+cd path\to\threads-sieve
 .\.venv\Scripts\Activate.ps1
 pip install pytest
 pytest tests/
@@ -309,7 +379,7 @@ pytest tests/
 Tests cover:
 - `classify_to_scribe_ai.py` — category filter, output schema, error / unsure buckets, custom categories
 - `watch_pipeline.py` — debounce, missing-file handling, `.env` loader
-- `image_ocr_to_markdown.py` — trigger filtering, markdown matching, OCR section insertion, DOM image filtering
+- `image_ocr_to_markdown.py` — trigger filtering, markdown matching, OCR backend selection, OCR section insertion, DOM image filtering
 - `backfill_image_ocr.py` — frontmatter URL extraction, candidate skipping, dry-run behavior, OCR section insertion/replacement, batch summary
 
 ---
@@ -318,9 +388,10 @@ Tests cover:
 
 - **Browser must be open + on the saved page** for auto-unsave to fire. The watcher will still produce `unsave.json` and markdown notes regardless, but the unsave step is a no-op until you visit `/saved`.
 - **File System Access permission may expire** after a browser restart. The Auto AI Sync panel status will show "handle: not bound" and ignore polls until you re-bind via the button.
-- **Classifier duplication**: this project runs its own Gemini classifier whose categories and hints live in `classify_config.json`. If you change the prompt in `PROJECT_threads-to-note/services/category_classifier.py`, sync the category list in `classify_config.json` manually.
-- **Gemini quota**: each scrape triggers two Gemini-using subprocesses (this project's classifier + the note project's own classifier inside `app.py`). The shared category list is intentional — both run on the full scrape so neither blocks the other.
-- **Markdown image OCR needs a markdown root**: set `MARKDOWN_OUTPUT_PATH`, or define `THREADS_MARKDOWN_OUTPUT` in the note project `.env`. Without either, OCR is skipped.
+- **Gemini quota**: each scrape uses Gemini for classification and title generation. If `image-ocr.backend` is `gemini`, OCR also consumes quota from the same key.
+- **Chandra OCR is optional**: set `config.json` → `image-ocr.backend` to `chandra`. For `method=vllm`, you must provide a reachable Chandra/vLLM OpenAI-compatible endpoint through `VLLM_API_BASE`.
+- **Chandra CLI still needs a viable backend**: `chandra --method vllm` is a CLI client and still requires a running vLLM server. `chandra --method hf` runs locally, but Chandra OCR 2 downloads a 10GB+ model and can be impractically slow or fail on low-resource Windows machines. Use Gemini OCR when no suitable Chandra backend is available.
+- **Markdown image OCR scans the markdown root**: set `config.json` → `paths.markdown-output-root` if you do not want the default `output` folder.
 - **Markdown image OCR uses Playwright**: the OCR step renders each matching Threads post to find carousel images. If Playwright browser binaries are missing, run `playwright install chromium`.
 
 ---
@@ -329,10 +400,12 @@ Tests cover:
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Watcher prints "missing required config" | `.env` not loaded or paths empty | Verify `.env` exists next to `start_pipeline.ps1`; check key names match table above |
+| Watcher prints "missing required config" | `config.json` paths are empty | Verify `paths.catch-json` and `paths.unsave-json` in `config.json` |
 | `catch.json` written but watcher idle | mtime change happened during the debounce window of another run | Wait `DEBOUNCE_SECONDS`; or shrink `POLL_SECONDS` |
 | `classify` subprocess fails with `GEMINI_API_KEY missing` | env not propagated to subprocess | Confirm key is in `.env` (not just shell), restart watcher |
-| Userscript panel never shows an AI classification load | handle not bound, permission revoked, or `autoLoad` off | Click **綁定 unsave.json** again, tick **自動載入 unsave.json**, or click **立即檢查**; check browser console for `[crawl-the-threads]` warnings |
+| OCR fails with `GEMINI_API_KEY missing` | `image-ocr.backend` is `gemini` but no key is available | Set `GEMINI_API_KEY`, or switch `config.json` → `image-ocr.backend` to `chandra` |
+| Chandra OCR cannot connect to vLLM | `image-ocr.backend=chandra` but `VLLM_API_BASE` is not reachable | Start your Chandra/vLLM server or update `VLLM_API_BASE` |
+| Userscript panel never shows an AI classification load | handle not bound, permission revoked, or `autoLoad` off | Click **綁定 unsave.json** again, tick **自動載入 unsave.json**, or click **立即檢查**; check browser console for `[threads-sieve]` warnings |
 | Auto-unsave skipped with "not on saved page" | Tab navigated away | Switch the tab back to `/saved` |
 | `probe` reports autosave not bound after browser restart | FS Access write permission revoked | Click **設定自動存檔** in panel to re-grant; permission is profile-scoped, not session-scoped — only lapses after profile wipe or extension update |
 | `scrape` exits 2 with timeout | Scrape still running (large backlog) or panel stalled | Increase `--wait-seconds`; check panel status with `python scripts/agent_driver.py status` |

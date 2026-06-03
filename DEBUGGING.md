@@ -16,9 +16,9 @@ Stop condition: three distinct failed fix attempts → Claude halts and asks bef
 
 - Chrome launched with `--remote-debugging-port=9222` (README section 0.C)
 - Threads `/saved` tab open: `https://www.threads.com/saved`
-- Tampermonkey dashboard → click into the **Threads Scriber (Auto, crawl-the-threads)** script (the editor tab is auto-detected by title; it must be open)
+- Tampermonkey dashboard → click into the **ThreadSieve (Auto)** script (the editor tab is auto-detected by title; it must be open)
 - Virtual env active: `.\.venv\Scripts\Activate.ps1`
-- `.env` populated, especially `CHROME_WS_PATH`
+- `.env` populated, and `config.json` has `paths.chrome-ws-cli`
 
 ## Usage
 
@@ -51,8 +51,8 @@ Claude will:
 
 | Exit / symptom | Cause | Fix |
 | --- | --- | --- |
-| `push_userscript.py` exits 2 — "no Tampermonkey editor tab" | Editor tab not open | Open Tampermonkey dashboard, click into the Threads Scriber (Auto) script |
-| `push_userscript.py` exits 2 — `CHROME_WS_PATH` not set | `.env` missing or empty | Set `CHROME_WS_PATH` (see README section 0.B) |
+| `push_userscript.py` exits 2 — "no Tampermonkey editor tab" | Editor tab not open | Open Tampermonkey dashboard, click into the ThreadSieve (Auto) script |
+| `push_userscript.py` exits 2 — chrome-ws CLI path missing | `config.json` path missing or empty | Set `paths.chrome-ws-cli` (see README section 0.B) |
 | `push_userscript.py` exits 3 — "save failed" | Tampermonkey UI changed; Save button selector drifted | Inspect via `chrome-ws eval <tab> "[...document.querySelectorAll('button[title]')].map(b=>b.outerHTML)"`; update title regex / id pattern in `click_save()` |
 | `push_userscript.py` exits 4 — "reload /saved failed" | `/saved` tab closed or chrome-ws lost connection | Reopen `https://www.threads.com/saved`; verify Chrome is on port 9222 |
 | `probe` reports `panel missing` after a push | Userscript has a syntax error | Open Tampermonkey console (Tampermonkey icon → Dashboard → script → Console); fix the error and re-push |
@@ -62,7 +62,7 @@ Claude will:
 
 The loop is built for bugs. Skip it for:
 - Documentation-only changes
-- Pure config edits (`classify_config.json`, `.env`)
+- Pure config edits (`config.json`, `.env`)
 - New features (still use TDD, but the stop-after-3 protocol is overkill)
 
 ## JS-only bug honesty

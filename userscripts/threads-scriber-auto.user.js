@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Threads Scriber (Auto, crawl-the-threads)
-// @namespace    https://local-only.example/crawl-the-threads/
+// @name         ThreadSieve (Auto)
+// @namespace    https://local-only.example/threads-sieve/
 // @version      0.3.0
-// @description  Fork of Threads Scriber that auto-loads unsave.json on disk change and (optionally) auto-runs the unsave flow. Part of the crawl-the-threads project.
-// @author       crawl-the-threads
+// @description  ThreadSieve auto-loads unsave.json on disk change and optionally auto-runs the AI-post cleanup flow.
+// @author       threads-sieve
 // @match        https://threads.com/*
 // @match        https://www.threads.com/*
 // @match        https://threads.net/*
@@ -2767,7 +2767,7 @@
       const panel = document.createElement("section");
       panel.id = PANEL_ID;
       panel.innerHTML = `
-        <h2>Threads Scriber</h2>
+        <h2>ThreadSieve</h2>
         <label for="${PANEL_ID}-date">截止日期</label>
         <input id="${PANEL_ID}-date" class="full" type="date" />
         <div class="row">
@@ -3627,7 +3627,7 @@
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // AutoAiSync — crawl-the-threads addition
+  // AutoAiSync — ThreadSieve addition
   //
   // Polls the persisted unsave.json file handle for lastModified changes,
   // auto-reloads it via AiReviewUtils, and optionally triggers the existing
@@ -3639,8 +3639,8 @@
   // ───────────────────────────────────────────────────────────────────────
   const AutoAiSync = {
     POLL_INTERVAL_MS: 3000,
-    TOGGLE_STORAGE_KEY: "crawl-the-threads:auto-ai-sync",
-    PANEL_ID: "crawl-the-threads-auto-panel",
+    TOGGLE_STORAGE_KEY: "threads-sieve:auto-ai-sync",
+    PANEL_ID: "threads-sieve-auto-panel",
     UNSAVE_AFTER_LOAD_DELAY_MS: 600,
     timerId: 0,
     lastModified: 0,
@@ -3715,7 +3715,7 @@
           return true;
         }
         await AiReviewUtils.loadAiResultsFromHandle(handle);
-        console.info("[crawl-the-threads] auto-loaded unsave.json", {
+        console.info("[threads-sieve] auto-loaded unsave.json", {
           fileName: handle.name,
           lastModified: this.lastModified,
         });
@@ -3724,7 +3724,7 @@
         }
         return true;
       } catch (error) {
-        console.warn("[crawl-the-threads] AutoAiSync tick failed:", error);
+        console.warn("[threads-sieve] AutoAiSync tick failed:", error);
         return false;
       } finally {
         this.inflight = false;
@@ -3734,7 +3734,7 @@
 
     async runAutoUnsave() {
       if (!isLikelySavedPage()) {
-        console.info("[crawl-the-threads] auto-unsave skipped: not on saved page.");
+        console.info("[threads-sieve] auto-unsave skipped: not on saved page.");
         return;
       }
       try {
@@ -3742,20 +3742,20 @@
         await wait(this.UNSAVE_AFTER_LOAD_DELAY_MS);
         AiReviewUtils.selectHighConfidence();
         if (state.selectedAiKeys.size === 0) {
-          console.info("[crawl-the-threads] auto-unsave skipped: no suggested AI posts selected.");
+          console.info("[threads-sieve] auto-unsave skipped: no suggested AI posts selected.");
           return;
         }
-        console.info("[crawl-the-threads] auto-unsave starting:", {
+        console.info("[threads-sieve] auto-unsave starting:", {
           selectedCount: state.selectedAiKeys.size,
         });
         await AiReviewUtils.unsaveSelected({ skipConfirm: true });
-        console.info("[crawl-the-threads] auto-unsave finished:", {
+        console.info("[threads-sieve] auto-unsave finished:", {
           verified: state.unsaveVerifiedKeys.size,
           attempted: state.unsaveAttemptedKeys.size,
           failed: state.unsaveFailedKeys.size,
         });
       } catch (error) {
-        console.warn("[crawl-the-threads] auto-unsave failed:", error);
+        console.warn("[threads-sieve] auto-unsave failed:", error);
       }
     },
 
@@ -3778,8 +3778,8 @@
 
     refreshControls() {
       const statusText = this.getStatusText();
-      document.documentElement.dataset.crawlThreadsAutoAiSyncStatus = statusText;
-      document.documentElement.dataset.crawlThreadsAutoAiSyncBound = this.handle?.name ? "true" : "false";
+      document.documentElement.dataset.threadsSieveAutoAiSyncStatus = statusText;
+      document.documentElement.dataset.threadsSieveAutoAiSyncBound = this.handle?.name ? "true" : "false";
       const panel = document.getElementById(this.PANEL_ID);
       if (!panel) {
         return;
@@ -3857,7 +3857,7 @@
       ].join(";");
 
       panel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:6px;">crawl-the-threads · Auto AI Sync</div>
+        <div style="font-weight:600;margin-bottom:6px;">ThreadSieve · Auto AI Sync</div>
         <label style="display:flex;gap:6px;align-items:center;margin:4px 0;">
           <input type="checkbox" data-key="autoLoad" /> 自動載入 unsave.json
         </label>
@@ -3914,7 +3914,7 @@
 
   function bootAutoAiSync() {
     AutoAiSync.init().catch((error) => {
-      console.warn("[crawl-the-threads] AutoAiSync init failed:", error);
+      console.warn("[threads-sieve] AutoAiSync init failed:", error);
     });
   }
 

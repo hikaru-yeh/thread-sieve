@@ -1,4 +1,10 @@
 {
+  "paths": {
+    "catch-json": "D:/shane_yeh/Documents/_Claude_Code/crawl-the-threads/data/catch.json",
+    "unsave-json": "D:/shane_yeh/Documents/_Claude_Code/crawl-the-threads/data/unsave.json",
+    "markdown-output-root": "D:/shane_yeh/Documents/_Claude_Code/knowledge-wiki/raw/threads",
+    "chrome-ws-cli": "C:/Users/shane_yeh/.claude/plugins/cache/superpowers-marketplace/superpowers-chrome/2.1.0/skills/browsing/chrome-ws"
+  },
   "categories": [
     "Claude Code",
     "生活妙招",
@@ -20,6 +26,14 @@
     "Threads"
   ],
   "unsaved-categories": ["AI", "科技", "Claude Code", "職場", "美食", "身體健康", "心理健康"],
+  "image-ocr": {
+    "backend": "gemini",
+    "method": "vllm",
+    "prompt-type": "ocr_layout",
+    "max-output-tokens": 12384,
+    "include-headers-footers": false,
+    "trigger-categories": ["AI", "Claude Code"]
+  },
   "hints": [
     "LingOrm：與泰國藝人／CP Ling、Orm、00k、หลิง、ออม、LingOrm 相關的粉絲內容、劇情對話、訪談、剪輯、花絮、互動、迷因，都歸類為 LingOrm；即使內容同時很好笑，也優先輸出 LingOrm，不要輸出 好笑的。",
     "如果內容是戀愛、情侶、放閃、曖昧、超甜、愛情故事這類 romance / CP 內容，優先輸出 LingOrm。",

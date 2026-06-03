@@ -9,9 +9,20 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(SCRIPT_DIR))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from _gemini_client import GeminiClient
+from note_generator.infrastructure.gemini_client import GeminiClient
+from note_generator.config import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_INPUT_PATH,
+    DEFAULT_UNSAVE_PATH,
+    load_json_config,
+    read_path_setting,
+    resolve_json_config_path,
+)
 
 
 _CATEGORY_PREFIX_RE = re.compile(r"^(?:分類|category)\s*[:：]\s*", re.IGNORECASE)
@@ -19,7 +30,6 @@ _LEADING_WRAP_RE = re.compile(r'^[\s`"\'「『（(\[]+')
 _TRAILING_WRAP_RE = re.compile(r'[\s`"\'」』）)\]]+$')
 
 DEFAULT_MODEL = "gemini-2.5-flash"
-DEFAULT_CONFIG_PATH = "classify_config.json"
 
 
 @dataclass
@@ -45,13 +55,16 @@ class ClassifiedItem:
     classified_at: str
 
 
-def load_config(path: Path) -> ClassifyConfig:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def parse_config(data: dict) -> ClassifyConfig:
     return ClassifyConfig(
         categories=data["categories"],
         unsaved_categories=set(data.get("unsaved-categories", [])),
         hints=data.get("hints", []),
     )
+
+
+def load_config(path: Path) -> ClassifyConfig:
+    return parse_config(load_json_config(path))
 
 
 def load_dotenv(path: Path) -> None:
@@ -204,7 +217,7 @@ def build_output_payload(
     return {
         "sourceFile": source_file,
         "generatedAt": timestamp(),
-        "backend": f"crawl-the-threads/category_classifier ({model})",
+        "backend": f"threads-sieve/category_classifier ({model})",
         "unsavedCategories": sorted(config.unsaved_categories),
         "summary": {
             "total": len(posts),
@@ -233,7 +246,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=None)
     parser.add_argument("--api-key", default="")
     parser.add_argument("--unsaved-categories", default=None, help="override config unsaved-categories (comma-separated)")
-    parser.add_argument("--config", default=None, help=f"path to classify_config.json (default: {DEFAULT_CONFIG_PATH})")
+    parser.add_argument("--config", default=None, help=f"path to config.json (default: {DEFAULT_CONFIG_PATH})")
     parser.add_argument("--env-file", default=".env")
     return parser.parse_args()
 
@@ -247,21 +260,30 @@ def main() -> int:
         print("ERROR: GEMINI_API_KEY missing. Set in .env or pass --api-key.", file=sys.stderr)
         return 2
 
-    config_path = Path(args.config or os.environ.get("CLASSIFY_CONFIG", DEFAULT_CONFIG_PATH))
+    config_path = resolve_json_config_path(args.config)
     if not config_path.exists():
         print(
             f"ERROR: config not found at {config_path}. "
-            "Copy classify_config.json, edit categories and hints, then retry.",
+            "Copy config.json, edit categories and hints, then retry.",
             file=sys.stderr,
         )
         return 2
-    config = load_config(config_path)
+    config_data = load_json_config(config_path)
+    config = parse_config(config_data)
 
     if args.unsaved_categories and args.unsaved_categories.strip():
         config.unsaved_categories = {t.strip() for t in args.unsaved_categories.split(",") if t.strip()}
 
-    input_path = Path(args.input or os.environ.get("CATCH_PATH", "data/catch.json"))
-    output_path = Path(args.output or os.environ.get("UNSAVE_PATH", "data/unsave.json"))
+    input_path = Path(
+        args.input
+        or os.environ.get("CATCH_PATH")
+        or read_path_setting(config_data, "catch-json", str(DEFAULT_INPUT_PATH))
+    )
+    output_path = Path(
+        args.output
+        or os.environ.get("UNSAVE_PATH")
+        or read_path_setting(config_data, "unsave-json", str(DEFAULT_UNSAVE_PATH))
+    )
     model = args.model or os.environ.get("CLASSIFIER_MODEL", DEFAULT_MODEL)
 
     posts = load_posts(input_path)

@@ -59,6 +59,92 @@ def test_extract_post_image_urls_from_dom_records_filters_carousel_images() -> N
     ]
 
 
+def test_build_chandra_ocr_image_downloads_image_and_runs_engine(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeEngine:
+        def __init__(self, **kwargs: object) -> None:
+            calls.append(("init", kwargs))
+
+        def generate_markdown(self, image_bytes: bytes) -> str:
+            calls.append(("generate", image_bytes))
+            return "Chandra text"
+
+    monkeypatch.setattr(mod, "ChandraOcrEngine", FakeEngine)
+    monkeypatch.setattr(mod, "download_image", lambda url: b"image-bytes")
+
+    ocr_image = mod.build_chandra_ocr_image(method="vllm", max_output_tokens=99)
+
+    assert ocr_image("https://image") == "Chandra text"
+    assert calls == [
+        (
+            "init",
+            {
+                "method": "vllm",
+                "prompt_type": mod.DEFAULT_PROMPT_TYPE,
+                "max_output_tokens": 99,
+                "include_headers_footers": False,
+            },
+        ),
+        ("generate", b"image-bytes"),
+    ]
+
+
+def test_build_gemini_ocr_image_downloads_image_and_runs_client(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeClient:
+        def __init__(self, *, api_key: str) -> None:
+            calls.append(("init", api_key))
+
+        def generate_text_from_image(self, image_bytes: bytes, prompt: str, *, model: str) -> str:
+            calls.append(("generate", (image_bytes, prompt, model)))
+            return "Gemini text"
+
+    monkeypatch.setattr(mod, "GeminiClient", FakeClient)
+    monkeypatch.setattr(mod, "download_image", lambda url: b"image-bytes")
+
+    ocr_image = mod.build_gemini_ocr_image(api_key="key", model="gemini-test")
+
+    assert ocr_image("https://image") == "Gemini text"
+    assert calls == [
+        ("init", "key"),
+        ("generate", (b"image-bytes", mod.OCR_PROMPT, "gemini-test")),
+    ]
+
+
+def test_build_ocr_image_defaults_to_gemini(monkeypatch) -> None:
+    monkeypatch.setattr(mod, "build_gemini_ocr_image", lambda **kwargs: lambda image_url: "gemini")
+    monkeypatch.setattr(mod, "build_chandra_ocr_image", lambda **kwargs: lambda image_url: "chandra")
+
+    assert mod.build_ocr_image(api_key="key")("https://image") == "gemini"
+
+
+def test_build_ocr_image_can_select_chandra(monkeypatch) -> None:
+    monkeypatch.setattr(mod, "build_gemini_ocr_image", lambda **kwargs: lambda image_url: "gemini")
+    monkeypatch.setattr(mod, "build_chandra_ocr_image", lambda **kwargs: lambda image_url: "chandra")
+
+    assert mod.build_ocr_image(backend="chandra")("https://image") == "chandra"
+
+
+def test_ocr_post_images_uses_injected_ocr_callable_and_skips_failures(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mod,
+        "fetch_image_urls_with_playwright",
+        lambda post_url, *, headless: ["https://image/1", "https://image/2", "https://image/3"],
+    )
+
+    def ocr_image(image_url: str) -> str:
+        if image_url.endswith("/2"):
+            raise RuntimeError("bad image")
+        return f"text for {image_url}"
+
+    assert mod.ocr_post_images(post_url="https://post", ocr_image=ocr_image) == [
+        "text for https://image/1",
+        "text for https://image/3",
+    ]
+
+
 def test_trigger_items_uses_classification_reasons(tmp_path: Path) -> None:
     posts = [
         {"postId": "p1", "postUrl": "https://threads/p1"},
@@ -76,3 +162,26 @@ def test_trigger_items_uses_classification_reasons(tmp_path: Path) -> None:
     result = mod.select_trigger_posts(posts, classifications, {"AI", "Claude Code"})
 
     assert [post["postId"] for post in result] == ["p1", "p2"]
+
+
+def test_read_int_env_uses_first_present_value(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_OUTPUT_TOKENS", "99")
+
+    assert mod.read_int_env("IMAGE_OCR_MAX_OUTPUT_TOKENS", "MAX_OUTPUT_TOKENS", default=10) == 99
+
+
+def test_read_ocr_config_loads_image_ocr_section(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"image-ocr": {"backend": "chandra", "trigger-categories": ["AI"]}}',
+        encoding="utf-8",
+    )
+
+    assert mod.read_ocr_config(config_path) == {
+        "backend": "chandra",
+        "trigger-categories": ["AI"],
+    }
+
+
+def test_read_configured_set_supports_json_list() -> None:
+    assert mod.read_configured_set(["AI", "Claude Code"], {"fallback"}) == {"AI", "Claude Code"}

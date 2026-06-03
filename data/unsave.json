@@ -1,0 +1,212 @@
+{
+  "sourceFile": "catch.json",
+  "generatedAt": "2026-06-03T13:44:34.608789+00:00",
+  "backend": "threads-sieve/category_classifier (gemini-2.5-flash)",
+  "unsavedCategories": [
+    "AI",
+    "Claude Code",
+    "心理健康",
+    "科技",
+    "美食",
+    "職場",
+    "身體健康"
+  ],
+  "summary": {
+    "total": 25,
+    "ai": 21,
+    "not_ai": 4,
+    "unsure": 0,
+    "failed": 0
+  },
+  "items": [
+    {
+      "postId": "DZDAi-AmMoX",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "科技",
+      "postUrl": "https://www.threads.com/@govin999999/post/DZDAi-AmMoX",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:03.653940+00:00"
+    },
+    {
+      "postId": "DU7cnPDEZKf",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "科技",
+      "postUrl": "https://www.threads.com/@darrell_tw_/post/DU7cnPDEZKf/media",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:10.297308+00:00"
+    },
+    {
+      "postId": "DY663Dkkd5f",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@matt_dancho/post/DY663Dkkd5f",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:18.511935+00:00"
+    },
+    {
+      "postId": "DY2f5mbiEZ9",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "科技",
+      "postUrl": "https://www.threads.com/@hamzaashergill/post/DY2f5mbiEZ9",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:22.318974+00:00"
+    },
+    {
+      "postId": "DY0tKj0gYx4",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "Claude Code",
+      "postUrl": "https://www.threads.com/@resen168/post/DY0tKj0gYx4",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:25.698209+00:00"
+    },
+    {
+      "postId": "DY1uXH-kwe7",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "Claude Code",
+      "postUrl": "https://www.threads.com/@levelup.daily_lab/post/DY1uXH-kwe7",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:28.999408+00:00"
+    },
+    {
+      "postId": "DY1lgkuiTJy",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@kikitataysi/post/DY1lgkuiTJy",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:34.273354+00:00"
+    },
+    {
+      "postId": "DYyy7MijjAQ",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "科技",
+      "postUrl": "https://www.threads.com/@s_h_u_ooo/post/DYyy7MijjAQ",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:39.010389+00:00"
+    },
+    {
+      "postId": "DYzkER5j12z",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@buildthink.ai/post/DYzkER5j12z",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:54.775458+00:00"
+    },
+    {
+      "postId": "DYzYKMiFEPx",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@krumjahn/post/DYzYKMiFEPx",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:58.609943+00:00"
+    },
+    {
+      "postId": "DYzHwlKk1Lm",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@yv.ictor/post/DYzHwlKk1Lm",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:43:59.384944+00:00"
+    },
+    {
+      "postId": "DYwLmqQDtrc",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "Claude Code",
+      "postUrl": "https://www.threads.com/@cassie8flowceo/post/DYwLmqQDtrc",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:03.279356+00:00"
+    },
+    {
+      "postId": "DYvxrv9klON",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "Claude Code",
+      "postUrl": "https://www.threads.com/@cai.chengkai/post/DYvxrv9klON",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:06.207200+00:00"
+    },
+    {
+      "postId": "DYvcrTZmZNH",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@cooljerrett/post/DYvcrTZmZNH",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:06.922048+00:00"
+    },
+    {
+      "postId": "DYvnmxHEr0y",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@kufutw/post/DYvnmxHEr0y",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:09.931879+00:00"
+    },
+    {
+      "postId": "DYvhWhaEwWn",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@0xspeter/post/DYvhWhaEwWn",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:15.073992+00:00"
+    },
+    {
+      "postId": "DYv2vgxkofT",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@crazyaitools_/post/DYv2vgxkofT",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:19.934574+00:00"
+    },
+    {
+      "postId": "DYtM1_Dmcdq",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "科技",
+      "postUrl": "https://www.threads.com/@__yasac/post/DYtM1_Dmcdq",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:20.378481+00:00"
+    },
+    {
+      "postId": "DYsruI9GoRX",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "Claude Code",
+      "postUrl": "https://www.threads.com/@sscottdev/post/DYsruI9GoRX",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:25.641406+00:00"
+    },
+    {
+      "postId": "DYrnV4UGXYu",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "Claude Code",
+      "postUrl": "https://www.threads.com/@kai_ch_chen/post/DYrnV4UGXYu",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:31.427827+00:00"
+    },
+    {
+      "postId": "DYrHZKWE9ss",
+      "decision": "ai",
+      "confidence": 1.0,
+      "reason": "AI",
+      "postUrl": "https://www.threads.com/@aiposthub/post/DYrHZKWE9ss",
+      "model": "gemini-2.5-flash",
+      "classifiedAt": "2026-06-03T13:44:34.608789+00:00"
+    }
+  ]
+}

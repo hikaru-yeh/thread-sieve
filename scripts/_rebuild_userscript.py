@@ -42,7 +42,7 @@ def main() -> int:
     auto_old = AUTO_PATH.read_text(encoding="utf-8")
 
     # 1. Extract AutoAiSync block from old auto.
-    #    From the divider comment `// AutoAiSync — crawl-the-threads addition`
+    #    From the divider comment `// AutoAiSync — ThreadSieve addition`
     #    through the matching `bootAutoAiSync` boot trigger lines, stopping
     #    just before the closing `})();`.
     m = re.search(
@@ -68,16 +68,16 @@ def main() -> int:
 
     # 2. Rewrite base header.
     base = re.sub(r"// @name         Threads Scriber\n",
-                  "// @name         Threads Scriber (Auto, crawl-the-threads)\n", base, count=1)
+                  "// @name         ThreadSieve (Auto)\n", base, count=1)
     base = re.sub(r"// @namespace    https://local-only\.example/\n",
-                  "// @namespace    https://local-only.example/crawl-the-threads/\n", base, count=1)
+                  "// @namespace    https://local-only.example/threads-sieve/\n", base, count=1)
     base = re.sub(r"// @version      0\.1\.3\n",
                   f"// @version      {NEW_VERSION}\n", base, count=1)
     base = re.sub(r"// @description  Export saved Threads posts from the web UI to CSV or JSON\.\n",
-                  "// @description  Fork of Threads Scriber that auto-loads unsave.json on disk change and (optionally) auto-runs the unsave flow. Part of the crawl-the-threads project.\n",
+                  "// @description  ThreadSieve auto-loads unsave.json on disk change and optionally auto-runs the AI-post cleanup flow.\n",
                   base, count=1)
     base = re.sub(r"// @author       Codex\n",
-                  "// @author       crawl-the-threads\n", base, count=1)
+                  "// @author       threads-sieve\n", base, count=1)
 
     # 3. Bump SCRIPT_VERSION constant.
     base = re.sub(r'const SCRIPT_VERSION = "0\.1\.3";',

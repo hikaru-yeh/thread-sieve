@@ -31,6 +31,9 @@ import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from note_generator.config import load_json_config, read_path_setting
 
 
 def load_dotenv(path: Path) -> None:
@@ -54,7 +57,17 @@ def load_dotenv(path: Path) -> None:
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-CHROME_WS: Path | None = Path(os.environ["CHROME_WS_PATH"]) if os.environ.get("CHROME_WS_PATH") else None
+
+def resolve_chrome_ws_path() -> Path | None:
+    configured = os.environ.get("CHROME_WS_PATH", "").strip()
+    if configured:
+        return Path(configured)
+
+    path = read_path_setting(load_json_config(), "chrome-ws-cli", "")
+    return Path(path) if path else None
+
+
+CHROME_WS: Path | None = resolve_chrome_ws_path()
 EXPECTED_VERSION = "0.3.0"
 PANEL_ID = "threads-saved-export-panel"
 SAVED_URL_SUBSTR = "/saved"
@@ -108,9 +121,9 @@ def cmd_probe() -> int:
         "const meta=document.getElementById('" + PANEL_ID + "-meta')?.textContent||'';"
         "const versionMatch=meta.match(/腳本版本:\\s*([0-9.]+)/);"
         "const autoSave=/自動存檔:\\s*已設定/.test(meta);"
-        "const autoPanel=!!document.getElementById('crawl-the-threads-auto-panel');"
-        "const autoStatus=document.querySelector('#crawl-the-threads-auto-panel [data-role=\"status\"]')?.textContent||document.documentElement.dataset.crawlThreadsAutoAiSyncStatus||'';"
-        "const autoSyncBound=document.documentElement.dataset.crawlThreadsAutoAiSyncBound==='true'||(!autoPanel&&/handle:\\s*(?!not bound)/.test(autoStatus));"
+        "const autoPanel=!!document.getElementById('threads-sieve-auto-panel');"
+        "const autoStatus=document.querySelector('#threads-sieve-auto-panel [data-role=\"status\"]')?.textContent||document.documentElement.dataset.threadsSieveAutoAiSyncStatus||'';"
+        "const autoSyncBound=document.documentElement.dataset.threadsSieveAutoAiSyncBound==='true'||(!autoPanel&&/handle:\\s*(?!not bound)/.test(autoStatus));"
         "const buttons={};['start','load-ai','apply-ai','select-high','unsave-selected','autosave']"
         ".forEach(k=>{buttons[k]=!!document.getElementById('" + PANEL_ID + "-'+k);});"
         "return JSON.stringify({url:location.href,scriptVersion:versionMatch?versionMatch[1]:null,autoSaveBound:autoSave,autoPanelPresent:autoPanel,autoSyncBound:autoSyncBound,autoStatus:autoStatus.trim(),buttons});"
@@ -229,7 +242,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if not CHROME_WS or not CHROME_WS.exists():
-        print(f"ERROR: CHROME_WS_PATH not set or path not found ({CHROME_WS}). Set CHROME_WS_PATH in .env.", file=sys.stderr)
+        print(
+            f"ERROR: chrome-ws CLI path not set or path not found ({CHROME_WS}). "
+            "Set paths.chrome-ws-cli in config.json.",
+            file=sys.stderr,
+        )
         return 2
 
     if args.cmd == "probe":

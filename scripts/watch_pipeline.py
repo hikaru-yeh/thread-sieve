@@ -11,6 +11,17 @@ from threading import Thread
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from note_generator.config import (
+    DEFAULT_INPUT_PATH,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_UNSAVE_PATH,
+    load_json_config,
+    read_path_setting,
+    resolve_json_config_path,
+)
+
 LOG_PATH = PROJECT_ROOT / "pipeline.log"
 
 
@@ -77,22 +88,24 @@ def wait_for_jobs(jobs: list[tuple[str, subprocess.Popen]]) -> None:
         log_line(f"[{name}] exit code: {rc}")
 
 
-def resolve_markdown_output_path(note_project_path: Path, env: dict[str, str]) -> Path | None:
+def resolve_markdown_output_path(env: dict[str, str], config_data: dict | None = None) -> Path:
+    threads_output = env.get("THREADS_MARKDOWN_OUTPUT", "").strip()
+    if threads_output:
+        return Path(threads_output)
+
     explicit = env.get("MARKDOWN_OUTPUT_PATH", "").strip()
     if explicit:
         return Path(explicit)
 
-    note_env = note_project_path / ".env"
-    if not note_env.exists():
-        return None
-    for raw_line in note_env.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key.strip() == "THREADS_MARKDOWN_OUTPUT" and value.strip():
-            return Path(value.strip().strip('"').strip("'"))
-    return None
+    configured = read_path_setting(config_data or {}, "markdown-output-root", "")
+    if configured:
+        return Path(configured)
+
+    return project_default_output_path()
+
+
+def project_default_output_path() -> Path:
+    return PROJECT_ROOT / DEFAULT_OUTPUT_DIR
 
 
 def is_stable(path: Path, *, debounce_seconds: float, poll_seconds: float) -> bool:
@@ -136,37 +149,42 @@ def run_pipeline(
     *,
     scribe_path: Path,
     scribe_ai_path: Path,
-    note_project_path: Path,
     project_root: Path,
+    config_data: dict | None = None,
+    config_path: Path | None = None,
 ) -> None:
     parent_env = os.environ.copy()
+    markdown_output_path = resolve_markdown_output_path(parent_env, config_data)
 
     classify_env = parent_env.copy()
     classify_env["CATCH_PATH"] = str(scribe_path)
     classify_env["UNSAVE_PATH"] = str(scribe_ai_path)
+    if config_path is not None:
+        classify_env["THREADSIEVE_CONFIG"] = str(config_path)
     classify_args = [
         sys.executable,
         str(project_root / "scripts" / "classify_to_scribe_ai.py"),
         "--input", str(scribe_path),
         "--output", str(scribe_ai_path),
     ]
+    if config_path is not None:
+        classify_args.extend(["--config", str(config_path)])
 
     note_env = parent_env.copy()
     note_env["THREADS_BOOKMARK_INPUT"] = str(scribe_path)
-    note_args = [sys.executable, "app.py"]
+    note_env.setdefault("THREADS_MARKDOWN_OUTPUT", str(markdown_output_path))
+    if config_path is not None:
+        note_env["THREADSIEVE_CONFIG"] = str(config_path)
+    note_args = [sys.executable, str(project_root / "app.py")]
 
     jobs = [
         ("classify", launch_job("classify", classify_args, cwd=project_root, env=classify_env)),
-        ("notes", launch_job("notes", note_args, cwd=note_project_path, env=note_env)),
+        ("notes", launch_job("notes", note_args, cwd=project_root, env=note_env)),
     ]
     wait_for_jobs(jobs)
 
-    markdown_output_path = resolve_markdown_output_path(note_project_path, parent_env)
     if parent_env.get("IMAGE_OCR_ENABLED", "true").strip().lower() in {"false", "0", "no", "off"}:
         log_line("[ocr] skipped: IMAGE_OCR_ENABLED=false")
-        return
-    if markdown_output_path is None:
-        log_line("[ocr] skipped: MARKDOWN_OUTPUT_PATH or THREADS_MARKDOWN_OUTPUT not configured")
         return
 
     ocr_env = parent_env.copy()
@@ -177,6 +195,8 @@ def run_pipeline(
         "--classifications", str(scribe_ai_path),
         "--markdown-root", str(markdown_output_path),
     ]
+    if config_path is not None:
+        ocr_args.extend(["--config", str(config_path)])
     wait_for_jobs([("ocr", launch_job("ocr", ocr_args, cwd=project_root, env=ocr_env))])
 
 
@@ -184,8 +204,9 @@ def watch_loop(
     *,
     scribe_path: Path,
     scribe_ai_path: Path,
-    note_project_path: Path,
     project_root: Path,
+    config_data: dict | None,
+    config_path: Path | None,
     debounce_seconds: float,
     poll_seconds: float,
 ) -> int:
@@ -210,8 +231,9 @@ def watch_loop(
                                 run_pipeline(
                                     scribe_path=scribe_path,
                                     scribe_ai_path=scribe_ai_path,
-                                    note_project_path=note_project_path,
                                     project_root=project_root,
+                                    config_data=config_data,
+                                    config_path=config_path,
                                 )
                             except Exception as error:
                                 log_line(f"pipeline error: {error!r}")
@@ -224,34 +246,56 @@ def watch_loop(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Watch catch.json and run classifier + note-importer in parallel.")
+    parser = argparse.ArgumentParser(description="Watch catch.json and run classifier + local markdown importer.")
     parser.add_argument("--scribe", default=os.environ.get("CATCH_PATH", ""))
     parser.add_argument("--scribe-ai", default=os.environ.get("UNSAVE_PATH", ""))
-    parser.add_argument("--note-project", default=os.environ.get("MARKDOWN_PATH", ""))
+    parser.add_argument("--config", default="")
     parser.add_argument("--debounce", type=float, default=float(os.environ.get("DEBOUNCE_SECONDS", "2.0")))
     parser.add_argument("--poll", type=float, default=float(os.environ.get("POLL_SECONDS", "1.0")))
     parser.add_argument("--env-file", default=".env")
     return parser.parse_args()
 
 
+def _pre_scan_env_file(argv: list[str]) -> str:
+    for i, token in enumerate(argv):
+        if token == "--env-file" and i + 1 < len(argv):
+            return argv[i + 1]
+        if token.startswith("--env-file="):
+            return token.split("=", 1)[1]
+    return ".env"
+
+
 def main() -> int:
+    load_dotenv(PROJECT_ROOT / _pre_scan_env_file(sys.argv[1:]))
     args = parse_args()
-    load_dotenv(PROJECT_ROOT / args.env_file)
+    config_path = resolve_json_config_path(args.config)
+    if not config_path.exists():
+        print(f"ERROR: config not found at {config_path}. Copy config.json and edit it, then retry.", file=sys.stderr)
+        return 2
+    config_data = load_json_config(config_path)
 
-    scribe = args.scribe or os.environ.get("CATCH_PATH", "")
-    scribe_ai = args.scribe_ai or os.environ.get("UNSAVE_PATH", "")
-    note_project = args.note_project or os.environ.get("MARKDOWN_PATH", "")
+    scribe = (
+        args.scribe
+        or os.environ.get("CATCH_PATH", "")
+        or read_path_setting(config_data, "catch-json", str(DEFAULT_INPUT_PATH))
+    )
+    scribe_ai = (
+        args.scribe_ai
+        or os.environ.get("UNSAVE_PATH", "")
+        or read_path_setting(config_data, "unsave-json", str(DEFAULT_UNSAVE_PATH))
+    )
 
-    missing = [name for name, value in [("CATCH_PATH", scribe), ("UNSAVE_PATH", scribe_ai), ("MARKDOWN_PATH", note_project)] if not value]
+    missing = [name for name, value in [("paths.catch-json", scribe), ("paths.unsave-json", scribe_ai)] if not value]
     if missing:
-        print(f"ERROR: missing required config: {', '.join(missing)}. Set in .env or pass via CLI.", file=sys.stderr)
+        print(f"ERROR: missing required config: {', '.join(missing)}. Set in config.json or pass via CLI.", file=sys.stderr)
         return 2
 
     return watch_loop(
         scribe_path=Path(scribe),
         scribe_ai_path=Path(scribe_ai),
-        note_project_path=Path(note_project),
         project_root=PROJECT_ROOT,
+        config_data=config_data,
+        config_path=config_path,
         debounce_seconds=args.debounce,
         poll_seconds=args.poll,
     )

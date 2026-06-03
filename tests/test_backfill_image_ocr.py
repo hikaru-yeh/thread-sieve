@@ -135,6 +135,52 @@ def test_dry_run_does_not_require_ocr_configuration(tmp_path: Path) -> None:
     assert summary["processed"] == 1
 
 
+def test_chandra_backend_can_be_selected_without_gemini_api_key(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "target.md"
+    target.write_text(note(), encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+
+    def fake_build_ocr_image(**kwargs: object):
+        calls.append(kwargs)
+        return lambda image_url: "Chandra OCR text"
+
+    monkeypatch.setattr(mod, "build_ocr_image", fake_build_ocr_image)
+
+    summary = mod.run_batch(
+        path=tmp_path,
+        log_path=tmp_path / "backfill.jsonl",
+        discover_images=lambda post_url, *, headless: ["https://image"],
+        ocr_backend="chandra",
+    )
+
+    assert summary["processed"] == 1
+    assert "Chandra OCR text" in target.read_text(encoding="utf-8")
+    assert calls[0]["backend"] == "chandra"
+
+
+def test_default_backend_is_gemini(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "target.md"
+    target.write_text(note(), encoding="utf-8")
+    calls: list[dict[str, object]] = []
+
+    def fake_build_ocr_image(**kwargs: object):
+        calls.append(kwargs)
+        return lambda image_url: "Gemini OCR text"
+
+    monkeypatch.setattr(mod, "build_ocr_image", fake_build_ocr_image)
+
+    summary = mod.run_batch(
+        path=tmp_path,
+        log_path=tmp_path / "backfill.jsonl",
+        discover_images=lambda post_url, *, headless: ["https://image"],
+        api_key="key",
+    )
+
+    assert summary["processed"] == 1
+    assert calls[0]["backend"] == "gemini"
+
+
 def test_batch_summary_counts_processed_skipped_failed_and_no_images(tmp_path: Path) -> None:
     processed = tmp_path / "processed.md"
     skipped = tmp_path / "skipped.md"
