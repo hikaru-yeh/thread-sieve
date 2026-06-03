@@ -79,3 +79,54 @@ def test_probe_allows_closed_auto_sync_panel_when_handle_is_bound(monkeypatch, c
     assert mod.cmd_probe() == 0
     captured = capsys.readouterr()
     assert "OK: panel ready for agent-driven scrape" in captured.err
+
+
+def test_first_sentence_stops_at_sentence_punctuation():
+    assert mod.first_sentence("第一句。第二句\n第三句") == "第一句。"
+    assert mod.first_sentence("First sentence! Second sentence.") == "First sentence!"
+    assert mod.first_sentence("沒有標點的第一行\n第二行") == "沒有標點的第一行 第二行"
+    assert mod.first_sentence("") == ""
+
+
+def test_build_unsave_preview_lines_joins_items_to_catch_posts():
+    catch_posts = [
+        {
+            "postId": "p1",
+            "authorName": "Alice",
+            "authorHandle": "@alice",
+            "contentText": "第一句。第二句",
+        },
+        {
+            "postId": "p2",
+            "authorName": "",
+            "authorHandle": "@bob",
+            "contentText": "No punctuation first line\nsecond line",
+        },
+    ]
+    unsave_payload = {
+        "items": [
+            {"postId": "p1"},
+            {"postId": "p2"},
+            {"postId": "missing"},
+        ]
+    }
+
+    assert mod.build_unsave_preview_lines(catch_posts, unsave_payload) == [
+        "作者:Alice| 貼文:第一句。",
+        "作者:@bob| 貼文:No punctuation first line second line",
+        "作者:(unknown)| 貼文:(post not found in catch.json)",
+    ]
+
+
+def test_ask_confirmation_accepts_only_lowercase_or_uppercase_y():
+    assert mod.ask_confirmation(lambda _prompt: "y") is True
+    assert mod.ask_confirmation(lambda _prompt: "Y") is True
+    assert mod.ask_confirmation(lambda _prompt: "n") is False
+    assert mod.ask_confirmation(lambda _prompt: "") is False
+
+
+def test_ask_confirmation_treats_eof_as_decline():
+    def raise_eof(_prompt: str) -> str:
+        raise EOFError
+
+    assert mod.ask_confirmation(raise_eof) is False

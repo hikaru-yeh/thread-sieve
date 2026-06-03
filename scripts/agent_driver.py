@@ -112,6 +112,66 @@ def chrome_click(tab_index: int, selector: str) -> None:
     _run_chrome_ws("click", str(tab_index), selector)
 
 
+_SENTENCE_END_CHARS = "。！？!?."
+
+
+def load_json_file(path: Path) -> object:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def first_sentence(text: object) -> str:
+    compact = " ".join(part.strip() for part in str(text or "").splitlines() if part.strip())
+    if not compact:
+        return ""
+    for index, char in enumerate(compact):
+        if char in _SENTENCE_END_CHARS:
+            return compact[: index + 1].strip()
+    return compact
+
+
+def _posts_by_id(catch_posts: object) -> dict[str, dict]:
+    if not isinstance(catch_posts, list):
+        return {}
+    out: dict[str, dict] = {}
+    for post in catch_posts:
+        if isinstance(post, dict) and post.get("postId"):
+            out[str(post["postId"])] = post
+    return out
+
+
+def build_unsave_preview_lines(catch_posts: object, unsave_payload: object) -> list[str]:
+    posts_by_id = _posts_by_id(catch_posts)
+    items = unsave_payload.get("items", []) if isinstance(unsave_payload, dict) else []
+    if not isinstance(items, list):
+        return []
+
+    lines: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        post_id = str(item.get("postId") or "")
+        post = posts_by_id.get(post_id)
+        if not post:
+            lines.append("作者:(unknown)| 貼文:(post not found in catch.json)")
+            continue
+        author = (
+            str(post.get("authorName") or "").strip()
+            or str(post.get("authorHandle") or "").strip()
+            or "(unknown)"
+        )
+        sentence = first_sentence(post.get("contentText")) or "(empty)"
+        lines.append(f"作者:{author}| 貼文:{sentence}")
+    return lines
+
+
+def ask_confirmation(input_fn=input) -> bool:
+    try:
+        answer = input_fn("確認執行?(y/n) ")
+    except EOFError:
+        return False
+    return answer.strip().lower() == "y"
+
+
 def cmd_probe() -> int:
     idx = find_saved_tab_index()
     expr = (
