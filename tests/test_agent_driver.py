@@ -130,3 +130,85 @@ def test_ask_confirmation_treats_eof_as_decline():
         raise EOFError
 
     assert mod.ask_confirmation(raise_eof) is False
+
+
+def test_wait_for_unsave_payload_returns_new_generated_at(tmp_path, monkeypatch):
+    unsave = tmp_path / "unsave.json"
+    unsave.write_text('{"generatedAt":"old","items":[]}', encoding="utf-8")
+    sleeps: list[float] = []
+    times = iter([0.0, 0.1])
+
+    monkeypatch.setattr(mod.time, "time", lambda: next(times))
+    monkeypatch.setattr(mod.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    unsave.write_text('{"generatedAt":"new","items":[{"postId":"p1"}]}', encoding="utf-8")
+
+    payload = mod.wait_for_unsave_payload(
+        unsave_path=unsave,
+        previous_generated_at="old",
+        timeout_seconds=5,
+        poll_seconds=0.1,
+    )
+
+    assert payload["generatedAt"] == "new"
+
+
+def test_confirm_unsave_gate_decline_does_not_run_browser_unsave(tmp_path, monkeypatch, capsys):
+    catch = tmp_path / "catch.json"
+    unsave = tmp_path / "unsave.json"
+    catch.write_text(
+        '[{"postId":"p1","authorName":"Alice","authorHandle":"@alice","contentText":"第一句。第二句"}]',
+        encoding="utf-8",
+    )
+    unsave.write_text('{"generatedAt":"new","items":[{"postId":"p1"}]}', encoding="utf-8")
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        mod,
+        "wait_for_unsave_payload",
+        lambda **_kwargs: mod.load_json_file(unsave),
+    )
+    monkeypatch.setattr(mod, "run_confirmed_browser_unsave", lambda _tab_index: calls.append("run"))
+
+    rc = mod.run_unsave_confirmation_gate(
+        tab_index=0,
+        catch_path=catch,
+        unsave_path=unsave,
+        previous_generated_at="old",
+        timeout_seconds=5,
+        input_fn=lambda _prompt: "n",
+    )
+
+    assert rc == 0
+    assert calls == []
+    out = capsys.readouterr().out
+    assert "即將取消儲存以下貼文:" in out
+    assert "作者:Alice| 貼文:第一句。" in out
+    assert "已取消執行；unsave.json 已保留，browser auto-unsave 維持關閉。" in out
+
+
+def test_confirm_unsave_gate_accept_runs_browser_unsave(tmp_path, monkeypatch):
+    catch = tmp_path / "catch.json"
+    unsave = tmp_path / "unsave.json"
+    catch.write_text('[{"postId":"p1","authorHandle":"@alice","contentText":"第一句。"}]', encoding="utf-8")
+    unsave.write_text('{"generatedAt":"new","items":[{"postId":"p1"}]}', encoding="utf-8")
+    calls: list[int] = []
+
+    monkeypatch.setattr(
+        mod,
+        "wait_for_unsave_payload",
+        lambda **_kwargs: mod.load_json_file(unsave),
+    )
+    monkeypatch.setattr(mod, "run_confirmed_browser_unsave", lambda tab_index: calls.append(tab_index) or {"ok": True})
+
+    rc = mod.run_unsave_confirmation_gate(
+        tab_index=7,
+        catch_path=catch,
+        unsave_path=unsave,
+        previous_generated_at="old",
+        timeout_seconds=5,
+        input_fn=lambda _prompt: "y",
+    )
+
+    assert rc == 0
+    assert calls == [7]
