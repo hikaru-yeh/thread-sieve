@@ -73,7 +73,7 @@ def resolve_chrome_ws_path() -> Path | None:
 
 
 CHROME_WS: Path | None = resolve_chrome_ws_path()
-EXPECTED_VERSION = "0.3.1"
+EXPECTED_VERSION = "0.3.2"
 PANEL_ID = "threads-saved-export-panel"
 SAVED_URL_SUBSTR = "/saved"
 
@@ -206,16 +206,16 @@ def run_confirmed_browser_unsave(tab_index: int) -> dict:
     expr = (
         "(async()=>{"
         "const api=window.ThreadSieveAutoAiSync;"
-        "if(!api?.forceLoad||!api?.runConfirmedUnsave) return JSON.stringify({ok:false,error:'ThreadSieveAutoAiSync API missing'});"
-        "const loaded=await api.forceLoad();"
-        "if(!loaded?.ok) return JSON.stringify({ok:false,error:'forceLoad failed',loaded});"
-        "const unsave=await api.runConfirmedUnsave();"
-        "return JSON.stringify({ok:true,loaded,unsave});"
+        "if(!api?.confirmedUnsave) return JSON.stringify({ok:false,error:'ThreadSieveAutoAiSync API missing'});"
+        "const unsave=await api.confirmedUnsave();"
+        "return JSON.stringify({ok:!!unsave?.ok,unsave});"
         "})()"
     )
     result = _coerce_chrome_json(chrome_eval(tab_index, expr))
     if not result.get("ok"):
-        raise RuntimeError(str(result.get("error") or "confirmed unsave failed"))
+        unsave_state = result.get("unsave") if isinstance(result.get("unsave"), dict) else {}
+        message = str(unsave_state.get("error") or result.get("error") or "confirmed unsave failed")
+        raise RuntimeError(message)
     return result
 
 

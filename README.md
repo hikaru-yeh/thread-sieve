@@ -204,7 +204,7 @@ Expected output ends with `OK: panel ready for agent-driven scrape`.
 | Problem | Fix |
 | --- | --- |
 | `panel missing` | Reload the `/saved` tab; wait for Tampermonkey to inject |
-| `scriptVersion=X expected 0.3.1` | Re-install `userscripts/threads-scriber-auto.user.js` in Tampermonkey |
+| `scriptVersion=X expected 0.3.2` | Re-install `userscripts/threads-scriber-auto.user.js` in Tampermonkey |
 | `autosave (catch.json) not bound` | Click **設定自動存檔** in the panel, pick `data/catch.json`; re-run probe |
 | `unsave.json handle not bound in AutoAiSync panel` | Click **綁定 unsave.json** in the Auto AI Sync panel, pick `data/unsave.json`; re-run probe |
 | `AutoAiSync panel missing` | Reload `/saved` tab; this refers to the Auto AI Sync panel |

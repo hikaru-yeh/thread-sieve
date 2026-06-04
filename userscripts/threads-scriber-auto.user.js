@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ThreadSieve (Auto)
 // @namespace    https://local-only.example/threads-sieve/
-// @version      0.3.1
+// @version      0.3.2
 // @description  ThreadSieve auto-loads unsave.json on disk change and optionally auto-runs the AI-post cleanup flow.
 // @author       threads-sieve
 // @match        https://threads.com/*
@@ -16,7 +16,7 @@
   "use strict";
 
   const STORAGE_KEY = "threadsSavedExportState";
-  const SCRIPT_VERSION = "0.3.1";
+  const SCRIPT_VERSION = "0.3.2";
   const PANEL_ID = "threads-saved-export-panel";
   const FILE_HANDLE_DB = "threadsSavedExportFileDb";
   const FILE_HANDLE_STORE = "handles";
@@ -3691,14 +3691,15 @@
       return this.getAutomationState();
     },
 
-    async forceLoad() {
-      const ok = await this.tick({ forceLoad: true, ignoreAutoLoad: true });
-      return { ok, ...this.getAutomationState() };
-    },
-
-    async runConfirmedUnsave() {
+    async confirmedUnsave() {
+      const loaded = await this.tick({ forceLoad: true, ignoreAutoLoad: true });
+      if (!loaded) {
+        return { ok: false, error: "forceLoad failed", ...this.getAutomationState() };
+      }
       await this.runAutoUnsave();
-      return { ok: true, ...this.getAutomationState() };
+      const state = this.getAutomationState();
+      const ok = state.verified > 0 || state.attempted > 0;
+      return { ok, ...state };
     },
 
     async ensureHandle() {
@@ -3946,8 +3947,7 @@
   window.ThreadSieveAutoAiSync = {
     getState: () => AutoAiSync.getAutomationState(),
     setAutoUnsave: (enabled) => AutoAiSync.setAutoUnsave(Boolean(enabled)),
-    forceLoad: () => AutoAiSync.forceLoad(),
-    runConfirmedUnsave: () => AutoAiSync.runConfirmedUnsave(),
+    confirmedUnsave: () => AutoAiSync.confirmedUnsave(),
   };
 
   function bootAutoAiSync() {

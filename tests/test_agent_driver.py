@@ -253,11 +253,11 @@ def test_set_browser_auto_unsave_returns_success_payload(monkeypatch):
     assert result == {"ok": True, "state": {"autoUnsave": False, "verified": 0}}
 
 
-def test_run_confirmed_browser_unsave_raises_when_force_load_fails(monkeypatch):
+def test_run_confirmed_browser_unsave_raises_when_bridge_reports_failure(monkeypatch):
     monkeypatch.setattr(
         mod,
         "chrome_eval",
-        lambda _idx, _expr: '{"ok":false,"error":"forceLoad failed","loaded":{"ok":false}}',
+        lambda _idx, _expr: '{"ok":false,"unsave":{"ok":false,"error":"forceLoad failed"}}',
     )
     with pytest.raises(RuntimeError, match="forceLoad failed"):
         mod.run_confirmed_browser_unsave(0)
