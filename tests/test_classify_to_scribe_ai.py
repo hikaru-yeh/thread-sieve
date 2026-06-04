@@ -218,3 +218,56 @@ def test_main_writes_unsave_json_atomically(tmp_path, monkeypatch, capsys):
     src, dst = replace_calls[-1]
     assert dst == str(unsave_path)
     assert src == str(unsave_path.with_suffix(unsave_path.suffix + ".tmp"))
+
+
+def test_main_removes_tmp_sidecar_when_write_text_fails(tmp_path, monkeypatch):
+    catch_path = tmp_path / "catch.json"
+    unsave_path = tmp_path / "unsave.json"
+    catch_path.write_text(
+        '[{"postId":"p1","authorHandle":"@a","contentText":"hello","publishedTime":"2026-06-01T00:00:00Z"}]',
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"paths":{"catch-json":"' + catch_path.as_posix() + '",'
+        '"unsave-json":"' + unsave_path.as_posix() + '"},'
+        '"categories":["AI","Other"],"unsaved-categories":["AI"]}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        mod,
+        "classify_post",
+        lambda **kwargs: (
+            mod.ClassifiedItem(
+                post_id=kwargs["post"]["postId"],
+                post_url=kwargs["post"].get("postUrl", ""),
+                decision="ai",
+                confidence=0.99,
+                reason="test",
+                classified_at="2026-06-05T00:00:00Z",
+            ),
+            "AI",
+        ),
+    )
+
+    original_write_text = mod.Path.write_text
+    boom = RuntimeError("simulated disk error")
+
+    def exploding_write_text(self, *args, **kwargs):
+        if self.name.endswith(".tmp"):
+            # Touch the file so it exists, then raise — proves the cleanup path runs.
+            original_write_text(self, "", encoding="utf-8")
+            raise boom
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(mod.Path, "write_text", exploding_write_text)
+    monkeypatch.setattr(mod.sys, "argv", ["classify_to_scribe_ai.py", "--config", str(config_path)])
+
+    with pytest.raises(RuntimeError, match="simulated disk error"):
+        mod.main()
+
+    tmp_sidecar = unsave_path.with_suffix(unsave_path.suffix + ".tmp")
+    assert not tmp_sidecar.exists(), f"expected {tmp_sidecar.name} to be cleaned up after write failure"
+    assert not unsave_path.exists(), "main must not produce unsave.json when write_text raised"

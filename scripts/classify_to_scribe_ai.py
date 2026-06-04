@@ -303,7 +303,11 @@ def main() -> int:
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
     os.replace(tmp_path, output_path)
     print(json.dumps(payload["summary"], ensure_ascii=False))
     return 0
