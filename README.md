@@ -33,7 +33,7 @@ Two coupled layers: `userscripts/threads-scriber-auto.user.js` (browser, Tamperm
    forked userscript: auto-load + auto-unsave
 ```
 
-After setup, **the only manual step is starting a scrape from the browser panel**.
+After setup, agent-driven runs still require one terminal confirmation before unsaving generated AI candidates.
 
 ---
 
@@ -165,7 +165,7 @@ ThreadSieve includes its own markdown note generator at `scripts/import_bookmark
 6. Reload the `/saved` tab. A floating panel "ThreadSieve · Auto AI Sync" appears bottom-right.
 7. In the **ThreadSieve panel**: click **設定自動存檔** → pick `data/catch.json`. (Write permission, persists across reloads.)
 8. In the **Auto AI Sync panel**: click **綁定 unsave.json** → pick `data/unsave.json`. (Read permission, one-time per profile.)
-9. Tick **自動載入 unsave.json** and **載入後自動取消儲存** when ready for the fully automated flow. The **立即檢查** button forces one AI classification load; if it succeeds, the small Auto AI Sync panel closes so it no longer covers the main panel.
+9. Tick **自動載入 unsave.json**. Leave **載入後自動取消儲存** off when using the Terminal B confirmation gate; `agent_driver.py scrape` will run the confirmed one-shot unsave after you type `y`. The **立即檢查** button forces one AI classification load; if it succeeds, the small Auto AI Sync panel closes so it no longer covers the main panel.
 10. Confirm setup: `python scripts/agent_driver.py probe` should print `OK: panel ready for agent-driven scrape`.
 
 ---
@@ -204,7 +204,7 @@ Expected output ends with `OK: panel ready for agent-driven scrape`.
 | Problem | Fix |
 | --- | --- |
 | `panel missing` | Reload the `/saved` tab; wait for Tampermonkey to inject |
-| `scriptVersion=X expected 0.3.0` | Re-install `userscripts/threads-scriber-auto.user.js` in Tampermonkey |
+| `scriptVersion=X expected 0.3.1` | Re-install `userscripts/threads-scriber-auto.user.js` in Tampermonkey |
 | `autosave (catch.json) not bound` | Click **設定自動存檔** in the panel, pick `data/catch.json`; re-run probe |
 | `unsave.json handle not bound in AutoAiSync panel` | Click **綁定 unsave.json** in the Auto AI Sync panel, pick `data/unsave.json`; re-run probe |
 | `AutoAiSync panel missing` | Reload `/saved` tab; this refers to the Auto AI Sync panel |
@@ -223,6 +223,8 @@ python scripts/agent_driver.py scrape --cutoff 2025-01-01 --wait-seconds 120
 Each `scrape` run first clicks **清空結果** so `catch.json` contains only the current run, not stale panel/localStorage items from an earlier cutoff.
 `--wait-seconds` polls `狀態` until idle (`待機中` / `完成` / `已停止`) or timeout.
 
+`--no-unsave-confirm` skips the Terminal B confirmation gate and reproduces the legacy fully-automated flow (browser auto-unsave runs as soon as `unsave.json` updates). `--unsave-timeout-seconds` (default `600`) bounds how long the gate waits for the watcher to write a fresh `unsave.json` after scrape completes.
+
 #### Step 4 · Wait for pipeline
 
 Watch Terminal A. After `catch.json` stabilises, the watcher fires both jobs:
@@ -237,11 +239,14 @@ pipeline starting: items=N
 
 After `classify` and `notes` finish, `scripts/image_ocr_to_markdown.py` reads this run's `catch.json` and `unsave.json`. For posts whose classification reason matches `config.json` → `image-ocr.trigger-categories`, it renders the Threads post with Playwright, OCRs attached images, and appends a `## 圖片文字` section to the matching markdown note. Gemini OCR is the default backend; Chandra can be selected in `config.json`.
 
-#### Step 5 · Auto AI Sync auto-unsave
+#### Step 5 · Terminal B confirmation gate
 
-The forked userscript polls `unsave.json` every 3 s. When `lastModified` changes it auto-loads the AI classification. If **載入後自動取消儲存** is ticked, the unsave flow starts immediately — no further action needed.
+After a fresh `unsave.json` is generated, Terminal B prints each candidate as `作者:<author>| 貼文:<first sentence>` and asks `確認執行?(y/n)`.
 
-To verify the load happened, check the Auto AI Sync panel status line; it should show the loaded `generatedAt` timestamp and the candidate count. You can also click **立即檢查** to force one load; after a successful check, the small panel closes. `agent_driver.py probe` still works after that because the userscript exposes the bound-handle status on the page.
+- Type `y` to force-load `unsave.json` and run the one-shot unsave flow.
+- Type `n` to keep `unsave.json` on disk and leave browser auto-unsave disabled; nothing on Threads changes.
+
+The gate sets browser auto-unsave to off at the start of every `scrape` run unless `--no-unsave-confirm` is passed. The forked userscript still polls `unsave.json` every 3 s and shows the loaded `generatedAt` timestamp and candidate count in the Auto AI Sync panel.
 
 Manual export, manual AI classification loading, manual selection, and debug tools are still available in the ThreadSieve panel, but they are collapsed under **手動工具** and **診斷** to keep the normal workflow uncluttered.
 
