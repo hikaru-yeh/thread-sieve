@@ -160,3 +160,61 @@ def test_load_posts_rejects_non_array(tmp_path):
     bad.write_text(json.dumps({"items": []}), encoding="utf-8")
     with pytest.raises(ValueError):
         mod.load_posts(bad)
+
+
+def test_main_writes_unsave_json_atomically(tmp_path, monkeypatch, capsys):
+    catch_path = tmp_path / "catch.json"
+    unsave_path = tmp_path / "unsave.json"
+    catch_path.write_text(
+        '[{"postId":"p1","authorHandle":"@a","contentText":"hello","publishedTime":"2026-06-01T00:00:00Z"}]',
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        '{"paths":{"catch-json":"' + catch_path.as_posix() + '",'
+        '"unsave-json":"' + unsave_path.as_posix() + '"},'
+        '"categories":["AI","Other"],"unsaved-categories":["AI"]}',
+        encoding="utf-8",
+    )
+
+    replace_calls: list[tuple[str, str]] = []
+    real_replace = mod.os.replace
+
+    def tracking_replace(src, dst):
+        replace_calls.append((str(src), str(dst)))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(mod.os, "replace", tracking_replace)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        mod,
+        "classify_post",
+        lambda **kwargs: (
+            mod.ClassifiedItem(
+                post_id=kwargs["post"]["postId"],
+                post_url=kwargs["post"].get("postUrl", ""),
+                decision="ai",
+                confidence=0.99,
+                reason="test",
+                classified_at="2026-06-04T00:00:00+00:00",
+            ),
+            "AI",
+        ),
+    )
+    monkeypatch.setattr(
+        mod.sys, "argv", ["classify_to_scribe_ai.py", "--config", str(config_path)]
+    )
+
+    rc = mod.main()
+
+    assert rc == 0
+    assert unsave_path.exists()
+    assert not unsave_path.with_suffix(unsave_path.suffix + ".tmp").exists()
+
+    payload = json.loads(unsave_path.read_text(encoding="utf-8"))
+    assert payload["items"][0]["postId"] == "p1"
+
+    assert replace_calls, "expected os.replace to be used for atomic write"
+    src, dst = replace_calls[-1]
+    assert dst == str(unsave_path)
+    assert src == str(unsave_path.with_suffix(unsave_path.suffix + ".tmp"))
