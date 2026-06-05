@@ -11,7 +11,10 @@ The problem with Threads bookmarks:
 
 ThreadSieve is a local automation pipeline that turns Threads saved posts into categorized markdown notes, and automatically unsave posts that have already been organized in specified categories.
 
-Two coupled layers: `userscripts/threads-scriber-auto.user.js` (browser, Tampermonkey) and `scripts/*.py` (Python pipeline).
+Two coupled layers:
+
+- `userscripts/threads-scriber-auto.user.js` — browser-side Tampermonkey userscript; scrapes the Threads saved page and writes `catch.json`.
+- `scripts/*.py` — Python pipeline; handles classification, note generation, image OCR, and agent-driven browser operations.
 
 ---
 

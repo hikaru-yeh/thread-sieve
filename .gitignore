@@ -1,11 +1,13 @@
 .env
 .venv/
+.graphify_uncached.txt
+.understand-anything/
 __pycache__/
 *.py[cod]
 *.log
-data/scribe.json
-data/scribe-ai.json
+config.json
+console-debug.txt
 docs/
 graphify-out/
-.graphify_uncached.txt
-.understand-anything/
+tests/
+test-output/
