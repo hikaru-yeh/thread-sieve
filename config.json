@@ -1,7 +1,7 @@
 {
   "paths": {
-    "catch-json": "D:/shane_yeh/Documents/_Claude_Code/crawl-the-threads/data/catch.json",
-    "unsave-json": "D:/shane_yeh/Documents/_Claude_Code/crawl-the-threads/data/unsave.json",
+    "catch-json": "D:/shane_yeh/Documents/_Claude_Code/thread-sieve/data/catch.json",
+    "unsave-json": "D:/shane_yeh/Documents/_Claude_Code/thread-sieve/data/unsave.json",
     "markdown-output-root": "D:/shane_yeh/Documents/_Claude_Code/knowledge-wiki/raw/threads",
     "chrome-ws-cli": "C:/Users/shane_yeh/.claude/plugins/cache/superpowers-marketplace/superpowers-chrome/2.1.0/skills/browsing/chrome-ws"
   },
