@@ -1,86 +1,97 @@
 # ThreadSieve
 
-[繁體中文](README.zh-TW.md)
+[English](README.en.md)
 
-ThreadSieve is a local automation pipeline that turns Threads saved posts into categorized markdown notes, with optional AI-post cleanup and image OCR.
+Threads 收藏貼文的問題：
 
-Two coupled layers: `userscripts/threads-scriber-auto.user.js` (browser, Tampermonkey) and `scripts/*.py` (Python pipeline).
+  ❌ 存了幾百篇
+  ❌ 沒有分類
+  ❌ 找不到
+  ❌ 最後全部爛在那裡
 
----
+ThreadSieve 是一套本機端自動化流程，用來把 Threads 收藏貼文篩選、分類，轉成 markdown 筆記，並可自動取消儲存已整理過的指定分類貼文。
 
-## What it does
+這個 repo 包含兩層：
 
-```
-[Browser scrape via ThreadSieve userscript] ─→ catch.json (fixed path)
-                                              │
-                                              ▼ (mtime + debounce)
-                          scripts/watch_pipeline.py
-                                              │
-                          ▼
-          scripts/import_bookmarks_to_markdown.py
-          (classify once → markdown notes + unsave.json)
-                          │
-                          ▼
-                    scripts/image_ocr_to_markdown.py
-                    (image OCR → ## 圖片文字)
-                          │
-                          ▼ (FS Access API poll lastModified)
-   ThreadSieve userscript: auto-load + confirmed auto-unsave
-```
+- `userscripts/threads-scriber-auto.user.js`：瀏覽器端 Tampermonkey userscript，負責抓 Threads saved 頁面並寫出 `catch.json`。
+- `scripts/*.py`：Python pipeline，負責分類、呼叫筆記產生器、圖片 OCR、agent-driven browser 操作。
 
-Two usage paths after setup: **No Terminal** (scrape via browser panel + one classify command) or **With Terminal** (watcher auto-triggers on `catch.json` + agent-driven scrape with a confirmation gate).
 
 ---
 
-## Prerequisites
+## 流程概覽
 
-| Requirement | Why needed |
+```text
+[Threads saved browser scrape] -> catch.json
+                                  |
+                                  v
+                         scripts/watch_pipeline.py
+                                  |
+                                  v
+             scripts/import_bookmarks_to_markdown.py
+             (分類一次 -> markdown notes + unsave.json)
+                                  |
+                                  v
+                  scripts/image_ocr_to_markdown.py
+                  (image OCR -> ## 圖片文字)
+                                  |
+                                  v
+              userscript auto-load unsave.json + confirmed auto-unsave
+```
+
+完成安裝後有兩條使用路徑：**不開 Terminal**（瀏覽器 panel scrape + 跑一次 classify 指令）或**開 Terminal**（watcher 自動偵測 `catch.json` 觸發 + agent-driven scrape 加確認 gate）。
+
+---
+
+## 前置需求
+
+| 需求 | 用途 |
 | --- | --- |
-| Python 3.11+ | watcher, classifier, note generator |
-| Node.js 18+ | `chrome-ws` CLI (agent driver) |
-| Google Chrome / Edge | browser automation via Chrome DevTools Protocol |
-| Tampermonkey extension | userscript injection |
-| Claude Code with [`superpowers-chrome`](https://github.com/obra/superpowers-chrome) plugin | provides the `chrome-ws` CDP CLI used by `agent_driver.py` |
+| Python 3.11+ | watcher、classifier、markdown note generator |
+| Node.js 18+ | 執行 `chrome-ws` CLI |
+| Google Chrome / Edge | 透過 Chrome DevTools Protocol 操作 browser |
+| Tampermonkey extension | 載入 Threads saved 頁面的 userscript |
+| Claude Code + [`superpowers-chrome`](https://github.com/obra/superpowers-chrome) plugin | 提供 `agent_driver.py` 和 `push_userscript.py` 需要的 `chrome-ws` CLI |
 
 ---
 
-## Install
+## 安裝
 
-### 0. Clone the repo
+### 0. Clone 此 repo
 
 ```powershell
 git clone https://github.com/hikaru-yeh/thread-sieve.git
 cd thread-sieve
 ```
 
-### 1. superpowers-chrome (CDP automation, required for `agent_driver.py`)
+### 1. `superpowers-chrome`（`agent_driver.py` 必要）
 
-`agent_driver.py` drives the browser through the [`superpowers-chrome`](https://github.com/obra/superpowers-chrome) plugin, which ships a `chrome-ws` Node.js CLI for Chrome DevTools Protocol commands.
+`agent_driver.py` 會透過 [`superpowers-chrome`](https://github.com/obra/superpowers-chrome) plugin 附帶的 `chrome-ws` Node.js CLI 控制已登入的 Chrome。設定 `--remote-debugging-port=9222` 之前，請先確認這個 CLI 已安裝並寫進 `config.json`。
 
-#### A. Install the plugin
+#### A. 安裝 plugin
 
-In Claude Code, install `superpowers-chrome` from the `obra/superpowers-marketplace` marketplace:
+在 Claude Code 中，從 `obra/superpowers-marketplace` marketplace 安裝 `superpowers-chrome`：
 
 ```text
 /plugin marketplace add obra/superpowers-marketplace
 /plugin install superpowers-chrome@superpowers-marketplace
 ```
 
-After installation the CLI lands at a path like the one below; use the version directory that exists on your machine:
+安裝後，`chrome-ws` CLI 通常會在類似下面的位置；實際版本號請以你本機安裝的目錄為準。
 
-```
+```text
 C:\Users\<you>\.claude\plugins\cache\superpowers-marketplace\superpowers-chrome\2.1.0\skills\browsing\chrome-ws
 ```
 
-Verify Node can run it:
+確認 Node.js 可以執行它：
 
 ```powershell
 node "C:\Users\<you>\.claude\plugins\cache\superpowers-marketplace\superpowers-chrome\2.1.0\skills\browsing\chrome-ws" --help
 ```
 
-#### B. Set `paths.chrome-ws-cli` in `config.json`
+#### B. 設定 `config.json`
 
-`agent_driver.py` and `push_userscript.py` require the `chrome-ws` CLI path. Set it in `config.json`:
+`agent_driver.py` 和 `push_userscript.py` 都需要 `chrome-ws` CLI 路徑。請在 `config.json` 設定：
 
 ```json
 "paths": {
@@ -88,19 +99,17 @@ node "C:\Users\<you>\.claude\plugins\cache\superpowers-marketplace\superpowers-c
 }
 ```
 
-`CHROME_WS_PATH` is still accepted as a compatibility override, but new setups should use `config.json`.
+舊的 `CHROME_WS_PATH` 環境變數仍可作為相容覆寫；新的安裝建議使用 `config.json`。
 
-#### C. Enable Chrome remote debugging
+#### C. 用 remote debugging 啟動 Chrome
 
-Chrome must be launched with `--remote-debugging-port=9222` **before** running any `agent_driver.py` commands.
+執行任何 `agent_driver.py` 指令之前，Chrome 必須先用 `--remote-debugging-port=9222` 啟動。
 
-`superpowers-chrome` can also launch Chrome with `chrome-ws start`, but its default behavior may choose a dynamic port. ThreadSieve's scripts and local hooks expect port `9222`, so use the fixed-port launcher below. If you choose to launch via `chrome-ws start`, pin the port with `--port=9222` or `CHROME_WS_PORT=9222`.
+`superpowers-chrome` 也可以用 `chrome-ws start` 啟動 Chrome，但預設行為可能會選擇動態 port。ThreadSieve 的 scripts 和本機 hook 目前都預期使用 `9222`，所以建議使用下面的固定 port 啟動方式。如果你改用 `chrome-ws start`，請用 `--port=9222` 或 `CHROME_WS_PORT=9222` 固定 port。
 
-Chrome 136+ requires remote debugging to use a non-default user data directory. That directory is a separate Chrome profile, so extensions and login cookies live there. Use the same `--user-data-dir` every time; otherwise Chrome starts with a fresh profile and you will need to install Tampermonkey and log in again.
+Chrome 136 之後，remote debugging 不能直接使用預設 Chrome profile，必須搭配非預設的 `--user-data-dir`。這個資料夾就是另一個 Chrome profile；Tampermonkey、userscript、Threads login cookie 都存在這裡。每次都用同一個 `--user-data-dir`，才不用一直重裝和重新登入。
 
-**Option 1 — PowerShell launcher**
-
-Close all existing Chrome windows first. If Chrome is already running without the flag, Windows may reuse that process and the debugging port will not open.
+啟動前先把所有 Chrome 視窗關掉，否則 Windows 可能沿用已經啟動、但沒有 `--remote-debugging-port=9222` 的 Chrome process。
 
 ```powershell
 $profileDir = Join-Path $env:LOCALAPPDATA "ThreadSieve\ChromeDebugProfile"
@@ -112,7 +121,7 @@ Start-Process "chrome.exe" -ArgumentList @(
 )
 ```
 
-If `chrome.exe` is not found, use the full Chrome path:
+如果找不到 `chrome.exe`，改用完整路徑：
 
 ```powershell
 Start-Process "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" -ArgumentList @(
@@ -122,36 +131,36 @@ Start-Process "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" -Argument
 )
 ```
 
-**Option 2 — shortcut (recommended for daily use)**
+日常使用時也可以做一個專用捷徑：
 
-1. Copy the Chrome shortcut on your desktop / taskbar.
-2. Right-click → Properties → Target, append ` --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\ThreadSieve\ChromeDebugProfile" https://www.threads.com/saved`.
-3. Always open Chrome through this shortcut, then install Tampermonkey and log in to Threads once inside this debug profile.
+1. 複製桌面或工作列上的 Chrome 捷徑。
+2. 右鍵 -> 內容 -> 目標，在原本內容後面加上 ` --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\ThreadSieve\ChromeDebugProfile" https://www.threads.com/saved`。
+3. 以後都用這個捷徑開啟 Chrome，並在這個 debug profile 裡安裝 Tampermonkey、登入 Threads。
 
-```
+```text
 "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\ThreadSieve\ChromeDebugProfile" https://www.threads.com/saved
 ```
 
-Verify the port is open:
+確認 9222 port 有開：
 
 ```powershell
 Invoke-WebRequest http://localhost:9222/json | Select-Object -Expand Content
 ```
 
-Should return a JSON list of open tabs.
+看到一段 tabs JSON 就代表 `agent_driver.py` / `push_userscript.py` 可以連上。
 
-#### D. Agent hooks guard this preflight
+#### D. Agent hooks 會檢查這個前置條件
 
-This repo contains local hooks for both agent environments:
+這個 repo 內建 Claude Code 和 Codex 的本機 hook：
 
-- `.claude/settings.json` runs `.claude/hooks/check-chrome-debug.ps1` before Claude Code shell commands.
-- `.codex/hooks.json` runs `.codex/check-chrome-debug.ps1` through `.codex/check-chrome-debug.cmd` before Codex shell commands.
+- `.claude/settings.json` 會在 Claude Code shell command 前執行 `.claude/hooks/check-chrome-debug.ps1`。
+- `.codex/hooks.json` 會透過 `.codex/check-chrome-debug.cmd` 執行 `.codex/check-chrome-debug.ps1`。
 
-Both hooks only target `agent_driver.py` and `push_userscript.py`. They block those commands when `127.0.0.1:9222` is not reachable, so agents do not fall back to Edge, a fresh non-debug Chrome window, or manual Tampermonkey edits.
+這兩個 hook 只攔截 `agent_driver.py` 和 `push_userscript.py`。如果 `127.0.0.1:9222` 連不上，它們會阻止指令繼續執行，避免 agent 誤開沒有 debug port 的新 browser 或改成手動操作 Tampermonkey。
 
 ---
 
-### 2. Python side
+### 2. Python 端
 
 ```powershell
 cd path\to\threads-sieve
@@ -163,261 +172,245 @@ copy .env.example .env
 copy config.json.example config.json
 ```
 
-Edit `.env`: fill in `GEMINI_API_KEY`.
+編輯 `.env`：填入 `GEMINI_API_KEY`。
 
-Edit `config.json`:
+編輯 `config.json`：
 
-| Key | What to set |
+| Key | 要填什麼 |
 | --- | --- |
-| `paths.catch-json` | Path to `data/catch.json` (relative or absolute) |
-| `paths.unsave-json` | Path to `data/unsave.json` (relative or absolute) |
-| `paths.markdown-output-root` | Where markdown notes are written (default: `output`) |
-| `paths.chrome-ws-cli` | Full path to the `chrome-ws` CLI from step 0 |
-| `categories` | Ordered list of categories the classifier can output |
-| `unsaved-categories` | Subset of `categories` whose posts get added to `unsave.json` |
-| `hints` | Free-text rules injected into the Gemini prompt to guide edge-case decisions |
+| `paths.catch-json` | `data/catch.json` 的路徑（相對或絕對） |
+| `paths.unsave-json` | `data/unsave.json` 的路徑（相對或絕對） |
+| `paths.markdown-output-root` | markdown 筆記輸出目錄（預設 `output`） |
+| `paths.chrome-ws-cli` | 步驟 0 安裝的 `chrome-ws` CLI 完整路徑 |
+| `categories` | Gemini classifier 可輸出的分類清單（依優先順序排列） |
+| `unsaved-categories` | `categories` 的子集；這些分類的貼文會寫入 `unsave.json` |
+| `hints` | 注入 Gemini prompt 的判斷補充說明，用於邊界情境 |
 
-`category-overrides` is optional — keyword/regex rules that force a category before calling Gemini.
+`category-overrides` 是可選欄位，可設定關鍵字或 regex 規則，在呼叫 Gemini 前強制指定分類。
 
-ThreadSieve includes its own markdown note generator at `scripts/import_bookmarks_to_markdown.py`; it no longer calls a sibling `PROJECT_threads-to-note` repo. Markdown notes are written to `config.json` → `paths.markdown-output-root` (default: `output`).
+ThreadSieve 已內建 markdown note generator (`scripts/import_bookmarks_to_markdown.py`)，不再呼叫外部 `PROJECT_threads-to-note` repo。markdown 筆記會寫到 `config.json` 的 `paths.markdown-output-root`，預設是 `output`。
 
-### 3. Browser side (one-time setup)
+### 3. Browser 端（一次性設定）
 
-1. Launch Chrome with `--remote-debugging-port=9222` (see above).
-2. Navigate to `https://www.threads.com/saved` and keep this tab open.
-3. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome / Edge.
-4. If you previously installed `threads-scriber.user.js` in this Chrome profile, disable it first. First-time ThreadSieve installs can skip this step.
-5. Open `userscripts/threads-scriber-auto.user.js` and click "Install" in Tampermonkey.
-6. Reload the `/saved` tab. A floating panel "ThreadSieve · Auto AI Sync" appears bottom-right.
+1. 使用上方設定好的 debug profile 啟動 Chrome，並確認帶有 `--remote-debugging-port=9222`。
+2. 打開 `https://www.threads.com/saved`，並保持這個 tab 開著。
+3. 在這個 Chrome profile 安裝 Tampermonkey。
+4. 如果你曾在同一個 Tampermonkey profile 安裝過 `threads-scriber.user.js`，請先停用它；第一次安裝 ThreadSieve 可略過這步。
+5. 安裝 `userscripts/threads-scriber-auto.user.js`。
+6. Reload `/saved`。右下角會出現 **ThreadSieve · Auto AI Sync** panel。
 
-The `catch.json` autosave grant, `unsave.json` binding, and `agent_driver.py probe` check are part of the daily SOP below. Treat browser File System Access handles as per-run setup because Chrome may require the grants again before writing or reading files.
+`catch.json` 自動存檔授權、`unsave.json` 綁定、以及 `agent_driver.py probe` 檢查放在日常使用 SOP。Chrome 的 File System Access handle 可能需要每次重新授權，第一次安裝時不用把它視為永久設定。
 
 ---
 
-## Daily usage SOP
+## 日常使用 SOP
 
-Two usage paths. Choose based on your setup:
+兩條使用路徑，依環境選擇：
 
-| | Path 1 — No Terminal | Path 2 — Terminal watcher + agent scrape |
+| | 路徑一：不開 Terminal | 路徑二：Terminal watcher + agent scrape |
 | --- | --- | --- |
-| Requires `agent_driver.py` | No | Yes |
-| Requires Chrome debug port | No | Yes |
-| Classify trigger | Manual (one command) | Automatic (watcher detects `catch.json`) |
-| Best for | Occasional use, quick runs | Daily automation |
+| 需要 `agent_driver.py` | 否 | 是 |
+| 需要 Chrome debug port | 否 | 是 |
+| 分類觸發方式 | 手動執行一次指令 | 自動（watcher 偵測 `catch.json`）|
+| 適合 | 偶爾使用、快速跑一次 | 日常自動化 |
 
 ---
 
-### Path 1 — No Terminal
+### 路徑一：不開 Terminal
 
-Scrape via the browser panel, then run classify once by hand.
+用瀏覽器 panel 手動 scrape，再跑一次 classify。
 
-#### Step 1 · Prepare the browser session
+#### 步驟 1：準備瀏覽器
 
-1. Open Chrome and navigate to `https://www.threads.com/saved`.
-2. If needed, reload the `/saved` tab so the **ThreadSieve** panel and **Auto AI Sync** panel appear.
-3. In the **ThreadSieve panel**: click **設定自動存檔** → pick `data/catch.json`.
-4. In the **Auto AI Sync panel**: click **綁定 unsave.json** → pick `data/unsave.json`.
-5. Tick **自動載入 unsave.json**.
+1. 開啟 Chrome，前往 `https://www.threads.com/saved`。
+2. 如果 panel 還沒出現，先 reload `/saved`，讓 **ThreadSieve panel** 和 **Auto AI Sync panel** 載入。
+3. 在 ThreadSieve panel 點 **設定自動存檔**，選 `data/catch.json`。
+4. 在 Auto AI Sync panel 點 **綁定 unsave.json**，選 `data/unsave.json`。
+5. 勾選 **自動載入 unsave.json**。
 
-#### Step 2 · Scrape via the panel
+#### 步驟 2：用 panel 觸發 scrape
 
-1. Enter a cutoff date in the ThreadSieve panel date input.
-2. Click **清空結果** to clear any leftover results from a previous run.
-3. Click **開始抓取** and wait for `狀態` to show `完成` or `待機中`.
+1. 在 ThreadSieve panel 的日期欄輸入截止日期。
+2. 點 **清空結果** 清除上次的殘留。
+3. 點 **開始抓取**，等 `狀態` 顯示 `完成` 或 `待機中`。
 
-#### Step 3 · Run classify
+#### 步驟 3：執行 classify
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python scripts/import_bookmarks_to_markdown.py
 ```
 
-This classifies every post once and writes both markdown notes and `unsave.json`. Image OCR runs automatically for posts whose category matches `config.json` → `image-ocr.trigger-categories`.
+這支 script 對每篇貼文分類一次，並用同一批分類結果寫出 markdown 筆記和 `unsave.json`。若分類結果符合 `config.json` → `image-ocr.trigger-categories`，圖片 OCR 也會自動執行。
 
-#### Step 4 · Confirm unsave in the browser
+#### 步驟 4：在瀏覽器確認 unsave
 
-The Auto AI Sync panel polls `unsave.json` every 3 s. Once it loads the new file it shows the candidate count and `generatedAt` timestamp.
+Auto AI Sync panel 每 3 秒 poll 一次 `unsave.json`。載入新檔案後會顯示候選筆數和 `generatedAt`。
 
-- Click **立即檢查** to force an immediate poll.
-- Tick **載入後自動取消儲存** before the file updates, or click the unsave button manually, to unsave the AI candidates.
+- 點 **立即檢查** 強制立即 poll。
+- 在檔案更新前勾選 **載入後自動取消儲存**，或手動點取消儲存按鈕，執行 AI 貼文取消儲存。
 
 ---
 
-### Path 2 — Terminal watcher + agent scrape (automated)
+### 路徑二：Terminal watcher + agent scrape（自動化）
 
-Runs the full pipeline automatically. Requires Chrome with `--remote-debugging-port=9222` and `config.json` → `paths.chrome-ws-cli` set.
+全流程自動執行。需要 Chrome 帶 `--remote-debugging-port=9222`，以及 `config.json` → `paths.chrome-ws-cli` 已設定。
 
-#### Terminal A — start the watcher (keep running)
+#### Terminal A：啟動 watcher
 
 ```powershell
 cd path\to\threads-sieve
 .\start_pipeline.ps1
 ```
 
-Logs stream to console and `pipeline.log`. Stop with `Ctrl+C`.
+log 會輸出到 console 和 `pipeline.log`。停止時按 `Ctrl+C`。
 
-#### Terminal B — agent-driven scrape
+#### Terminal B：agent-driven scrape
 
-##### Step 1 · Prepare the browser session
+先準備 browser 端：
 
-1. Launch Chrome with `--remote-debugging-port=9222` using the same debug profile from setup.
-2. Open `https://www.threads.com/saved` and keep this tab open.
-3. If needed, reload the `/saved` tab so the **ThreadSieve** panel and **Auto AI Sync** panel appear.
-4. In the **ThreadSieve panel**: click **設定自動存檔** → pick `data/catch.json`.
-5. In the **Auto AI Sync panel**: click **綁定 unsave.json** → pick `data/unsave.json`.
-6. Tick **自動載入 unsave.json**.
-7. Leave **載入後自動取消儲存** off when using the Terminal B confirmation gate; `agent_driver.py scrape` will run the confirmed one-shot unsave after you type `y`.
-8. Optional: click **立即檢查** to force one AI classification load. If it succeeds, the small Auto AI Sync panel closes so it no longer covers the main panel.
+1. 用安裝階段設定好的同一個 debug profile 啟動 Chrome，並帶上 `--remote-debugging-port=9222`。
+2. 開啟 `https://www.threads.com/saved`，並保持這個 tab 開著。
+3. 如果 panel 還沒出現，先 reload `/saved`，讓 **ThreadSieve panel** 和 **Auto AI Sync panel** 載入。
+4. 在 ThreadSieve panel 點 **設定自動存檔**，選 `data/catch.json`。
+5. 在 Auto AI Sync panel 點 **綁定 unsave.json**，選 `data/unsave.json`。
+6. 勾選 **自動載入 unsave.json**。
+7. 若要使用 Terminal B 的確認 gate，**載入後自動取消儲存** 請不要勾；`agent_driver.py scrape` 會在你輸入 `y` 後執行一次性取消儲存。
+8. 可點 **立即檢查** 強制載入一次 AI classification；成功後小型 Auto AI Sync panel 會收合，避免遮住主 panel。
 
-##### Step 2 · Verify panel readiness
+再確認 panel ready：
 
 ```powershell
 python scripts/agent_driver.py probe
 ```
 
-Expected output ends with `OK: panel ready for agent-driven scrape`.
+Expected output 最後一行：`OK: panel ready for agent-driven scrape`
 
-**If it reports problems:**
+**若 probe 回報問題：**
 
-| Problem | Fix |
+| 問題 | 處理方式 |
 | --- | --- |
-| `panel missing` | Reload the `/saved` tab; wait for Tampermonkey to inject |
-| `scriptVersion=X expected 0.3.2` | Re-install `userscripts/threads-scriber-auto.user.js` in Tampermonkey |
-| `autosave (catch.json) not bound` | Click **設定自動存檔** in the panel, pick `data/catch.json`; re-run probe |
-| `unsave.json handle not bound in AutoAiSync panel` | Click **綁定 unsave.json** in the Auto AI Sync panel, pick `data/unsave.json`; re-run probe |
-| `AutoAiSync panel missing` | Reload `/saved` tab; this refers to the Auto AI Sync panel |
+| `panel missing` | reload `/saved`；等 Tampermonkey inject |
+| `scriptVersion=X expected 0.3.2` | 重新安裝 `userscripts/threads-scriber-auto.user.js` |
+| `autosave (catch.json) not bound` | 點 **設定自動存檔**，選 `data/catch.json`；re-run probe |
+| `unsave.json handle not bound in AutoAiSync panel` | 點 **綁定 unsave.json**，選 `data/unsave.json`；re-run probe |
+| `AutoAiSync panel missing` | reload `/saved`；這指的是 Auto AI Sync panel |
 
-##### Step 3 · Trigger scrape
+觸發 scrape：
 
 ```powershell
-# Capture everything since 2010 (all saves):
+# 抓全部（自 2010）：
 python scripts/agent_driver.py scrape --cutoff 2010-01-01 --wait-seconds 300
 
-# Or limit to a recent window (faster, fewer Gemini tokens):
+# 只抓近期（速度快、較少 Gemini tokens）：
 python scripts/agent_driver.py scrape --cutoff 2025-01-01 --wait-seconds 120
 ```
 
-`--cutoff` sets the date input in the panel before clicking 開始抓取.  
-Each `scrape` run first clicks **清空結果** so `catch.json` contains only the current run, not stale panel/localStorage items from an earlier cutoff.
-`--wait-seconds` polls `狀態` until idle (`待機中` / `完成` / `已停止`) or timeout.
+`--cutoff` 會在 panel 設定日期後點 **開始抓取**。每次 scrape 會先點 **清空結果**，確保 `catch.json` 只含本次資料。`--wait-seconds` 定期 poll `狀態` 直到 idle（`待機中` / `完成` / `已停止`）或 timeout。
 
-`--no-unsave-confirm` skips the Terminal B confirmation gate and lets browser auto-unsave run as soon as `unsave.json` updates. `--unsave-timeout-seconds` (default `600`) bounds how long the gate waits for the watcher to write a fresh `unsave.json` after scrape completes.
+加上 `--no-unsave-confirm` 可略過 Terminal B 確認 gate，讓 browser 在 `unsave.json` 更新後直接取消儲存。`--unsave-timeout-seconds`（預設 `600`）控制 gate 等待新 `unsave.json` 的最長秒數。
 
-##### Step 4 · Wait for pipeline
-
-Watch Terminal A. After `catch.json` stabilises, the watcher runs the note workflow, which classifies each post once and writes both markdown notes and `unsave.json`:
+等待 Terminal A：`catch.json` 穩定後，watcher 啟動 notes workflow，分類一次並同時寫出 markdown 筆記和 `unsave.json`：
 
 ```
 pipeline starting: items=N
 [notes]    exit code: 0
 ```
 
-`unsave.json` and markdown notes are both ready at this point.
+`notes` 完成後，`image_ocr_to_markdown.py` 會對 `config.json` → `image-ocr.trigger-categories` 指定分類的貼文執行圖片 OCR，並把結果寫入 markdown 的 `## 圖片文字` 區塊。預設 OCR backend 是 Gemini；要切到 Chandra，改 `config.json` 的 `image-ocr.backend`。
 
-After `notes` finishes, `scripts/image_ocr_to_markdown.py` reads this run's `catch.json` and `unsave.json`. For posts whose classification reason matches `config.json` → `image-ocr.trigger-categories`, it renders the Threads post with Playwright, OCRs attached images, and appends a `## 圖片文字` section to the matching markdown note. Gemini OCR is the default backend; Chandra can be selected in `config.json`.
+Terminal B confirmation gate：watcher 寫出新 `unsave.json` 後，Terminal B 印出每個候選（`作者:<author>| 貼文:<first sentence>`）並問 `確認執行?(y/n)`：
 
-##### Step 5 · Terminal B confirmation gate
+- 輸入 `y`：force-load `unsave.json`、執行一次性取消儲存。
+- 輸入 `n`：`unsave.json` 保留不動，browser auto-unsave 維持關閉，Threads 不動。
 
-After a fresh `unsave.json` is generated, Terminal B prints each candidate as `作者:<author>| 貼文:<first sentence>` and asks `確認執行?(y/n)`.
+Gate 會在每次 `scrape` 開始時把 browser auto-unsave 設成 off（除非加了 `--no-unsave-confirm`）。ThreadSieve userscript 仍每 3 秒 poll `unsave.json`，並在 Auto AI Sync panel 顯示 `generatedAt` 和候選數。
 
-- Type `y` to force-load `unsave.json` and run the one-shot unsave flow.
-- Type `n` to keep `unsave.json` on disk and leave browser auto-unsave disabled; nothing on Threads changes.
-
-The gate sets browser auto-unsave to off at the start of every `scrape` run unless `--no-unsave-confirm` is passed. The ThreadSieve userscript still polls `unsave.json` every 3 s and shows the loaded `generatedAt` timestamp and candidate count in the Auto AI Sync panel.
-
-Manual export, manual AI classification loading, manual selection, and debug tools are still available in the ThreadSieve panel, but they are collapsed under **手動工具** and **診斷** to keep the normal workflow uncluttered.
+ThreadSieve panel 的手動工具、手動載入 AI classification、手動選擇、診斷工具仍可用，但收折在 **手動工具** 和 **診斷** 下方，不影響正常流程。
 
 ---
 
-### Quick-check commands
+## 補舊 markdown 的圖片 OCR
 
-```powershell
-# Dump raw panel state:
-python scripts/agent_driver.py status
+使用 `scripts/backfill_image_ocr.py` 補洞：當某些舊 markdown 筆記是在圖片 OCR 功能之前產生的，可以用這個 script 回頭補 `## 圖片文字`。它會使用 `config.json` 指定的 image OCR backend。
 
-# Click an arbitrary panel button (e.g. stop):
-python scripts/agent_driver.py click stop
-```
+預設候選條件：
 
----
+- frontmatter 有 `status: stub`
+- frontmatter 有 `網址` 或 `url`
+- 檔案尚未包含 `## 圖片文字`
+- 去掉 frontmatter、`## Sources`、既有 `## 圖片文字` 後，正文長度低於 `--min-content-chars`，預設 `800`
 
-## Backfill existing markdown image OCR
-
-Use `scripts/backfill_image_ocr.py` when older markdown notes were already written before image OCR existed. The tool scans a markdown file or folder, finds likely OCR-missing stubs, fetches the Threads post images, OCRs them with the configured image OCR backend, and inserts `## 圖片文字` before `## Sources`.
-
-Default candidate rules:
-
-- frontmatter has `status: stub`
-- frontmatter has `網址` or `url`
-- the note does not already contain `## 圖片文字`
-- the non-frontmatter body is shorter than `--min-content-chars` (default: `800`)
-
-Preview a folder without fetching images, calling the OCR backend, or editing files:
+先 dry-run 預覽整個資料夾：
 
 ```powershell
 python scripts/backfill_image_ocr.py --path "<wiki-folder>" --dry-run
 ```
 
-For date-based patch work, ask the agent to filter files first, then run the script per matched file. `backfill_image_ocr.py` intentionally does not include a modified-date filter because date patching is an occasional repair workflow, not the normal batch mode.
-
-Example agent prompt:
-
-```text
-Use `scripts/backfill_image_ocr.py`.
-
-Recursively scan:
-<wiki-folder>
-
-Only select `.md` files whose filesystem LastWriteTime date is YYYY-MM-DD,
-then run `scripts/backfill_image_ocr.py --path "<file>"` for each selected file.
-
-Do not pass the entire wiki folder to the script for this date-scoped repair.
-Use the script defaults: process only `status: stub`, short body, frontmatter `網址` or `url`,
-and no existing `## 圖片文字`.
-
-Write a JSONL log and report processed / skipped / failed / no_images.
-```
-
-Write an explicit JSONL log:
+寫出 JSONL log：
 
 ```powershell
 python scripts/backfill_image_ocr.py --path "<wiki-folder>" --log data/backfill-image-ocr.jsonl
 ```
 
-Each considered file gets one JSONL event with `processed`, `skipped`, `failed`, or `no_images`. Individual file failures are soft and do not stop the batch. Use `--force` only when you want to replace an existing `## 圖片文字` section.
+每個被檢查的 `.md` 都會有一筆 JSONL event，狀態可能是：
+
+- `processed`
+- `skipped`
+- `failed`
+- `no_images`
+
+單篇失敗是 soft failure，不會中斷整批。
+
+### 依指定日期補洞
+
+`backfill_image_ocr.py` 沒有內建「修改日期」參數。指定日期補洞不是常見批次模式，建議交給 agent 先用檔案系統篩選，再逐檔呼叫 script。
+
+範例 prompt：
+
+```text
+Use `scripts/backfill_image_ocr.py`.
+
+請先遞迴掃描：
+<wiki-folder>
+
+只挑選檔案系統 LastWriteTime 日期為 YYYY-MM-DD 的 `.md` 檔案，
+再逐檔執行 `scripts/backfill_image_ocr.py --path "<file>"`。
+
+不要直接把整個 wiki folder 丟給 script。
+script 內建條件照預設即可：只處理 `status: stub`、內文不夠詳細、
+frontmatter 有 `網址` 或 `url`、且沒有 `## 圖片文字` 的檔案。
+
+請產生 JSONL log，最後回報 processed / skipped / failed / no_images summary。
+```
+
+如果只想先檢查候選檔，在 prompt 補一句：
+
+```text
+第一輪請加 `--dry-run`，只回報候選檔與 summary，不要修改 markdown。
+```
 
 ---
 
-## Configuration
+## 設定
 
-### `config.json` — paths, classification logic, and OCR behavior
+`config.json` 放非 secret 的通用設定、分類表和 OCR 行為：
 
-Edit this file to customise local paths and per-user categories without touching Python.
-
-| Key | Default | Used by |
+| Key | Default | 用途 |
 | --- | --- | --- |
-| `paths.catch-json` | `data/catch.json` | watcher, note workflow, userscript handle |
-| `paths.unsave-json` | `data/unsave.json` | note workflow, OCR, watcher, userscript handle |
-| `paths.markdown-output-root` | `output` | markdown note output root; ThreadSieve writes notes here and OCR scans this tree |
-| `paths.chrome-ws-cli` | _required for browser automation_ | `agent_driver.py`, `push_userscript.py` |
-| `categories` | project example list | Ordered list of categories the Gemini classifier can output |
-| `unsaved-categories` | project example subset | Subset of `categories` that map to `decision="ai"` — posts in these categories get auto-unsaved |
-| `category-overrides` | `[]` | Optional keyword / regex rules that force a category before calling Gemini; use this for personal taxonomy rules |
-| `image-ocr` | see below | Non-secret image OCR behavior: backend, Chandra method, prompt type, max output tokens, headers/footers toggle, and trigger categories |
-| `hints` | project example rules | Free-text rules injected into the Gemini prompt to guide priority decisions between categories |
+| `paths.catch-json` | `data/catch.json` | watcher、note workflow、userscript |
+| `paths.unsave-json` | `data/unsave.json` | note workflow、OCR、watcher、userscript |
+| `paths.markdown-output-root` | `output` | markdown 筆記輸出 root；ThreadSieve 會寫入這裡，OCR 也會掃描這裡 |
+| `paths.chrome-ws-cli` | required for browser automation | `agent_driver.py`、`push_userscript.py` 使用的 `chrome-ws` CLI |
+| `categories` | project example list | Gemini classifier 可輸出的分類；開源使用者可依自己的分類表調整 |
+| `unsaved-categories` | project example subset | 這些分類會輸出到 `unsave.json`，供 userscript 自動取消儲存 |
+| `category-overrides` | `[]` | 可選的 keyword / regex 強制分類規則；適合放個人 taxonomy 規則 |
+| `hints` | project example rules | 注入 Gemini prompt 的分類判斷補充 |
+| `image-ocr` | 見下方 | 非 secret 的 OCR 行為設定 |
 
-Path values may be relative to the project root or absolute local paths. For Windows paths in JSON, forward slashes are easiest: `C:/Users/<you>/...`.
+路徑可以用相對路徑或本機絕對路徑。Windows JSON 路徑建議用 forward slash：`C:/Users/<you>/...`。
 
-```json
-"paths": {
-  "catch-json": "data/catch.json",
-  "unsave-json": "data/unsave.json",
-  "markdown-output-root": "output",
-  "chrome-ws-cli": "C:/Users/<you>/.claude/plugins/cache/superpowers-marketplace/superpowers-chrome/2.1.0/skills/browsing/chrome-ws"
-}
-```
-
-Optional category override example:
+`category-overrides` 範例：
 
 ```json
 "category-overrides": [
@@ -429,9 +422,27 @@ Optional category override example:
 ]
 ```
 
-The normal watcher path classifies once inside `scripts/import_bookmarks_to_markdown.py`, then writes markdown notes and `unsave.json` from that same result. `scripts/classify_to_scribe_ai.py` is still available as a standalone compatibility/debug command; its CLI-only `--unsaved-categories` override applies only to that standalone run.
+正常 watcher 路徑會在 `scripts/import_bookmarks_to_markdown.py` 裡分類一次，再用同一批分類結果寫出 markdown 筆記和 `unsave.json`。`scripts/classify_to_scribe_ai.py` 仍保留作為 standalone 相容/除錯指令；它的 CLI-only `--unsaved-categories` 覆寫只影響那次 standalone run。
 
-Default OCR config:
+舊的 `CATCH_PATH`、`UNSAVE_PATH`、`MARKDOWN_OUTPUT_PATH`、`THREADS_MARKDOWN_OUTPUT`、`CHROME_WS_PATH` 仍可作為相容覆寫，但新的設定請放在 `config.json`。
+
+`.env` 常用欄位：
+
+| Key | Default | 用途 |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | required | classifier；若 `image-ocr.backend` 是 `gemini`，也用於圖片 OCR |
+| `CLASSIFIER_MODEL` | `gemini-2.5-flash` | Gemini classifier model |
+| `IMAGE_OCR_ENABLED` | `true` | watcher OCR step toggle |
+| `IMAGE_OCR_MODEL` | `gemini-2.5-flash` | `image-ocr.backend=gemini` 時使用的 Gemini OCR model |
+| `MODEL_CHECKPOINT` | `datalab-to/chandra-ocr-2` | `image-ocr.backend=chandra` 時的 Chandra model setting |
+| `MAX_OUTPUT_TOKENS` | `12384` | Chandra max output tokens；可被 `image-ocr.max-output-tokens` 覆蓋 |
+| `VLLM_API_BASE` | `http://localhost:8000/v1` | Chandra vLLM OpenAI-compatible endpoint |
+| `VLLM_MODEL_NAME` | `chandra` | Chandra vLLM served model name |
+| `VLLM_GPUS` | `0` | Chandra vLLM server GPU selection |
+| `DEBOUNCE_SECONDS` | `2.0` | watcher debounce |
+| `POLL_SECONDS` | `1.0` | watcher poll interval |
+
+`config.json` 裡的 `image-ocr` 是非 secret 的 OCR 行為設定：
 
 ```json
 "image-ocr": {
@@ -444,71 +455,49 @@ Default OCR config:
 }
 ```
 
-Set `"backend": "chandra"` to use Chandra. With `"method": "vllm"`, Chandra calls the OpenAI-compatible endpoint configured by the `VLLM_*` keys in `.env`. CLI flags such as `--ocr-backend chandra` and environment variables such as `IMAGE_OCR_BACKEND=chandra` still work as one-off overrides.
-
-`CATCH_PATH`, `UNSAVE_PATH`, `MARKDOWN_OUTPUT_PATH`, `THREADS_MARKDOWN_OUTPUT`, and `CHROME_WS_PATH` are still accepted as compatibility aliases, but new setups should use `config.json`.
-
-### `.env` — secrets and runtime tuning
-
-| Key | Default | Used by |
-| --- | --- | --- |
-| `GEMINI_API_KEY` | _required_ | classifier, and image OCR when `image-ocr.backend` is `gemini` |
-| `CLASSIFIER_MODEL` | `gemini-2.5-flash` | classifier |
-| `IMAGE_OCR_ENABLED` | `true` | OCR step toggle |
-| `IMAGE_OCR_MODEL` | `gemini-2.5-flash` | Gemini image OCR model when `image-ocr.backend` is `gemini` |
-| `MODEL_CHECKPOINT` | `datalab-to/chandra-ocr-2` | Chandra model setting when `image-ocr.backend` is `chandra` |
-| `MAX_OUTPUT_TOKENS` | `12384` | Chandra max output tokens; can be overridden by `image-ocr.max-output-tokens` |
-| `VLLM_API_BASE` | `http://localhost:8000/v1` | Chandra vLLM OpenAI-compatible endpoint |
-| `VLLM_MODEL_NAME` | `chandra` | Chandra vLLM served model name |
-| `VLLM_GPUS` | `0` | Chandra vLLM server GPU selection |
-| `DEBOUNCE_SECONDS` | `2.0` | watcher |
-| `POLL_SECONDS` | `1.0` | watcher |
-
-The public Chandra defaults in `.env.example` come from [datalab-to/chandra](https://github.com/datalab-to/chandra); check that repo for the latest upstream settings.
+`backend` 可設為 `gemini` 或 `chandra`。使用 Chandra 時，`method=vllm` 會呼叫 `.env` 中 `VLLM_*` 指向的 OpenAI-compatible endpoint。`.env.example` 中的 Chandra 預設值來自 [datalab-to/chandra](https://github.com/datalab-to/chandra)；最新設定請以 upstream repo 為準。CLI 參數如 `--ocr-backend chandra` 和環境變數如 `IMAGE_OCR_BACKEND=chandra` 仍可作為單次 override。
 
 ---
 
-## Tests
+## 測試
 
 ```powershell
 cd path\to\threads-sieve
 .\.venv\Scripts\Activate.ps1
-pip install pytest
 pytest tests/
 ```
 
-Tests cover:
-- `classify_to_scribe_ai.py` — standalone compatibility classifier output schema, error / unsure buckets, custom categories
-- `import_bookmarks_to_markdown.py` — single-pass classification feeding both markdown notes and `unsave.json`
-- `watch_pipeline.py` — debounce, missing-file handling, `.env` loader
-- `image_ocr_to_markdown.py` — trigger filtering, markdown matching, OCR backend selection, OCR section insertion, DOM image filtering
-- `backfill_image_ocr.py` — frontmatter URL extraction, candidate skipping, dry-run behavior, OCR section insertion/replacement, batch summary
+測試涵蓋：
+
+- `classify_to_scribe_ai.py` standalone 相容分類輸出
+- `import_bookmarks_to_markdown.py` 單次分類同時供 markdown 和 `unsave.json` 使用
+- `watch_pipeline.py`
+- `image_ocr_to_markdown.py`，包含 OCR backend selection
+- `backfill_image_ocr.py`
 
 ---
 
-## Known limitations
+## 已知限制
 
-- **Browser must be open + on the saved page** for auto-unsave to fire. The watcher will still produce `unsave.json` and markdown notes regardless, but the unsave step is a no-op until you visit `/saved`.
-- **File System Access grants are per-run setup** in the daily SOP. If the Auto AI Sync panel status shows "handle: not bound" or `probe` reports missing handles, re-select `data/catch.json` and `data/unsave.json`.
-- **Gemini quota**: each scrape classifies each post once, then uses Gemini again for title generation. If `image-ocr.backend` is `gemini`, OCR also consumes quota from the same key.
-- **Chandra OCR is optional**: set `config.json` → `image-ocr.backend` to `chandra`. For `method=vllm`, you must provide a reachable Chandra/vLLM OpenAI-compatible endpoint through `VLLM_API_BASE`.
-- **Chandra CLI still needs a viable backend**: `chandra --method vllm` is a CLI client and still requires a running vLLM server. `chandra --method hf` runs locally, but Chandra OCR 2 downloads a 10GB+ model and can be impractically slow or fail on low-resource Windows machines. Use Gemini OCR when no suitable Chandra backend is available.
-- **Markdown image OCR scans the markdown root**: set `config.json` → `paths.markdown-output-root` if you do not want the default `output` folder.
-- **Markdown image OCR uses Playwright**: the OCR step renders each matching Threads post to find carousel images. If Playwright browser binaries are missing, run `playwright install chromium`.
+- auto-unsave 需要瀏覽器停在 `/saved`。
+- File System Access 授權視為每次日常使用前的準備步驟；若 browser 顯示 handle 未綁定，請重新選檔。
+- markdown image OCR 會掃描 markdown root；若不想使用預設 `output`，請設定 `config.json` 的 `paths.markdown-output-root`。
+- OCR 會用 Playwright render Threads post；若缺 browser binary，執行 `playwright install chromium`。
+- Gemini quota：每次 scrape 會對每篇貼文分類一次，接著為 markdown title generation 再呼叫 Gemini；如果 `image-ocr.backend=gemini`，OCR 也會消耗 Gemini quota。
+- Chandra OCR 是 optional；若 `image-ocr.backend=chandra` 且 `method=vllm`，需要 `.env` 的 `VLLM_API_BASE` 指向可連線的 Chandra/vLLM server。
+- Chandra CLI 仍需要可用 backend：`chandra --method vllm` 是 client，仍要有 vLLM server；`chandra --method hf` 是本機模型，但 Chandra OCR 2 會下載 10GB+ 模型，在低資源 Windows 機器上可能非常慢或失敗。沒有合適 Chandra backend 時，請使用 Gemini OCR。
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
+| 現象 | 可能原因 | 處理方式 |
 | --- | --- | --- |
-| Watcher prints "missing required config" | `config.json` paths are empty | Verify `paths.catch-json` and `paths.unsave-json` in `config.json` |
-| `catch.json` written but watcher idle | mtime change happened during the debounce window of another run | Wait `DEBOUNCE_SECONDS`; or shrink `POLL_SECONDS` |
-| `notes` subprocess fails with `GEMINI_API_KEY missing` | env not propagated to subprocess | Confirm key is in `.env` (not just shell), restart watcher |
-| OCR fails with `GEMINI_API_KEY missing` | `image-ocr.backend` is `gemini` but no key is available | Set `GEMINI_API_KEY`, or switch `config.json` → `image-ocr.backend` to `chandra` |
-| Chandra OCR cannot connect to vLLM | `image-ocr.backend=chandra` but `VLLM_API_BASE` is not reachable | Start your Chandra/vLLM server or update `VLLM_API_BASE` |
-| Userscript panel never shows an AI classification load | handle not bound, permission revoked, or `autoLoad` off | Click **綁定 unsave.json** again, tick **自動載入 unsave.json**, or click **立即檢查**; check browser console for `[threads-sieve]` warnings |
-| Auto-unsave skipped with "not on saved page" | Tab navigated away | Switch the tab back to `/saved` |
-| `probe` reports autosave not bound | Current browser session has not granted the `catch.json` autosave handle | Click **設定自動存檔** in the panel and pick `data/catch.json`, then re-run probe |
-| `scrape` exits 2 with timeout | Scrape still running (large backlog) or panel stalled | Increase `--wait-seconds`; check panel status with `python scripts/agent_driver.py status` |
-| `catch.json` stays 0 bytes after scrape | Autosave handle not bound | Re-grant via 設定自動存檔, then re-run scrape |
+| watcher 顯示 missing required config | `config.json` 路徑空白 | 檢查 `paths.catch-json` 和 `paths.unsave-json` |
+| `catch.json` 寫入但 watcher 沒動 | mtime 落在 debounce window | 等 `DEBOUNCE_SECONDS` 或調小 `POLL_SECONDS` |
+| notes workflow 顯示 `GEMINI_API_KEY missing` | subprocess 沒拿到 env | 確認 key 在 `.env`，重啟 watcher |
+| OCR 顯示 `GEMINI_API_KEY missing` | `image-ocr.backend=gemini` 但沒有 key | 設定 `GEMINI_API_KEY`，或把 `config.json` 的 `image-ocr.backend` 改成 `chandra` |
+| Chandra OCR 連不到 vLLM | `image-ocr.backend=chandra` 但 `VLLM_API_BASE` 不可連線 | 啟動 Chandra/vLLM server，或修正 `VLLM_API_BASE` |
+| panel 沒載入 AI classification | handle 未綁定或 autoLoad 關閉 | 重新綁定 `unsave.json`，勾選自動載入 |
+| `probe` 說 autosave not bound | 本次 browser session 尚未授權 `catch.json` | 重新點 **設定自動存檔** |
+| `scrape` timeout | backlog 太大或 panel 卡住 | 增加 `--wait-seconds`，用 `agent_driver.py status` 檢查 |
