@@ -16,6 +16,15 @@ See `DEBUGGING.md` (English) or `DEBUGGING.zh-TW.md` (繁體中文) for the oper
 
 If a code change modifies user-visible behavior, setup, deployment, verification, or agent workflow in a way that differs from the current `README.md`, do not edit `README.md` immediately. First tell the user what README change is needed and propose a short plan; edit `README.md` only after the user confirms.
 
+## Open-source and personalization gate
+
+Before any change, consider whether it keeps the repo safe and useful for a future public release:
+- Do not hardcode personal categories, fandom names, private labels, local absolute paths, account handles, bookmark URLs, or workflow preferences in Python, userscript code, tests, docs, or checked-in examples.
+- Keep project behavior generic by default. Put user-specific categories, prompt hints, auto-unsave categories, keyword overrides, paths, and local tool locations in `config.json`, `.env`, or another documented local config surface.
+- Prefer config-driven extension points over special-case code. If a rule is useful only for one user's taxonomy, implement it as a generic config mechanism and keep the private values out of source.
+- Tests should use neutral sample categories and placeholder data unless the test is explicitly about a public, documented fixture.
+- When a requested fix seems personal, preserve the fix as a reusable capability and explain where the user's private values should live.
+
 ## Testing
 
 ```

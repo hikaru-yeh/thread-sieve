@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from note_generator.models import EnrichedBookmark, SourceBookmark
 from note_generator.services.category_classifier import CategoryClassifier
+from note_generator.services.category_overrides import CategoryOverride
 from note_generator.services.threads_reply_enricher import ThreadsReplyEnricher
 
 
@@ -39,6 +40,32 @@ def test_category_classifier_uses_config_categories_and_hints() -> None:
     assert "- Custom hint" in client.prompts[0]
 
 
+def test_category_classifier_uses_configured_category_overrides() -> None:
+    client = FakeLLMClient("Other")
+    classifier = CategoryClassifier(
+        llm_client=client,  # type: ignore[arg-type]
+        model_name="test-model",
+        categories=["Custom", "Other"],
+        hints=[],
+        category_overrides=[
+            CategoryOverride(category="Custom", keywords=("project mercury",)),
+        ],
+    )
+    item = EnrichedBookmark(
+        source=SourceBookmark(
+            post_url="https://threads/post/override",
+            author_handle="@demo",
+            content_text="Project Mercury release notes",
+        ),
+        primary_content="Project Mercury release notes",
+    )
+
+    classified = classifier.classify(item)
+
+    assert classified.category == "Custom"
+    assert client.prompts == []
+
+
 def test_threads_reply_enricher_accepts_configured_label_lines() -> None:
     class FakePageClient:
         def fetch_body_text(self, url: str) -> str:
@@ -61,4 +88,3 @@ def test_threads_reply_enricher_accepts_configured_label_lines() -> None:
     )
 
     assert enriched.primary_content == "Useful reply"
-

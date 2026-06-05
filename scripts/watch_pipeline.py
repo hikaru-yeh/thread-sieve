@@ -156,29 +156,15 @@ def run_pipeline(
     parent_env = os.environ.copy()
     markdown_output_path = resolve_markdown_output_path(parent_env, config_data)
 
-    classify_env = parent_env.copy()
-    classify_env["CATCH_PATH"] = str(scribe_path)
-    classify_env["UNSAVE_PATH"] = str(scribe_ai_path)
-    if config_path is not None:
-        classify_env["THREADSIEVE_CONFIG"] = str(config_path)
-    classify_args = [
-        sys.executable,
-        str(project_root / "scripts" / "classify_to_scribe_ai.py"),
-        "--input", str(scribe_path),
-        "--output", str(scribe_ai_path),
-    ]
-    if config_path is not None:
-        classify_args.extend(["--config", str(config_path)])
-
     note_env = parent_env.copy()
     note_env["THREADS_BOOKMARK_INPUT"] = str(scribe_path)
+    note_env["UNSAVE_PATH"] = str(scribe_ai_path)
     note_env.setdefault("THREADS_MARKDOWN_OUTPUT", str(markdown_output_path))
     if config_path is not None:
         note_env["THREADSIEVE_CONFIG"] = str(config_path)
     note_args = [sys.executable, str(project_root / "scripts" / "import_bookmarks_to_markdown.py")]
 
     jobs = [
-        ("classify", launch_job("classify", classify_args, cwd=project_root, env=classify_env)),
         ("notes", launch_job("notes", note_args, cwd=project_root, env=note_env)),
     ]
     wait_for_jobs(jobs)
@@ -246,7 +232,7 @@ def watch_loop(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Watch catch.json and run classifier + local markdown importer.")
+    parser = argparse.ArgumentParser(description="Watch catch.json and run the local markdown importer.")
     parser.add_argument("--scribe", default=os.environ.get("CATCH_PATH", ""))
     parser.add_argument("--scribe-ai", default=os.environ.get("UNSAVE_PATH", ""))
     parser.add_argument("--config", default="")

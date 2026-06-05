@@ -35,14 +35,20 @@ def test_load_config_uses_note_generator_paths(tmp_path, monkeypatch):
 
 def test_load_config_uses_config_json_paths(tmp_path, monkeypatch):
     catch = tmp_path / "catch.json"
+    unsave = tmp_path / "unsave.json"
     output = tmp_path / "notes"
     config_file = tmp_path / "config.json"
     config_file.write_text(
         f"""{{
           "paths": {{
             "catch-json": "{catch.as_posix()}",
+            "unsave-json": "{unsave.as_posix()}",
             "markdown-output-root": "{output.as_posix()}"
-          }}
+          }},
+          "unsaved-categories": ["Custom"],
+          "category-overrides": [
+            {{"category": "Custom", "keywords": ["project mercury"]}}
+          ]
         }}""",
         encoding="utf-8",
     )
@@ -60,7 +66,11 @@ def test_load_config_uses_config_json_paths(tmp_path, monkeypatch):
     config = mod.load_config(dotenv_path=None)
 
     assert config.input_path == catch
+    assert config.unsave_path == unsave
     assert config.output_dir == output
+    assert config.unsaved_categories == {"Custom"}
+    assert config.category_overrides[0].category == "Custom"
+    assert config.category_overrides[0].keywords == ("project mercury",)
 
 
 def test_load_config_defaults_are_relative(tmp_path, monkeypatch):
@@ -78,6 +88,7 @@ def test_load_config_defaults_are_relative(tmp_path, monkeypatch):
     config = mod.load_config(dotenv_path=None)
 
     assert config.input_path == Path("data/catch.json")
+    assert config.unsave_path == Path("data/unsave.json")
     assert config.output_dir == Path("output")
     assert not config.output_dir.is_absolute()
     assert config.image_ocr_enabled is False

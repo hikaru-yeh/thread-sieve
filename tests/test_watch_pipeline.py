@@ -73,7 +73,7 @@ def test_load_dotenv_handles_missing_file(tmp_path):
     mod.load_dotenv(tmp_path / "nope.env")  # should not raise
 
 
-def test_run_pipeline_runs_ocr_after_classify_and_notes(monkeypatch, tmp_path):
+def test_run_pipeline_runs_notes_before_ocr_without_standalone_classify(monkeypatch, tmp_path):
     calls = []
     catch = tmp_path / "catch.json"
     unsave = tmp_path / "unsave.json"
@@ -101,8 +101,8 @@ def test_run_pipeline_runs_ocr_after_classify_and_notes(monkeypatch, tmp_path):
     )
 
     launched_names = [call[1] for call in calls if call[0] == "launch"]
-    assert launched_names == ["classify", "notes", "ocr"]
-    assert calls.index(("wait", "classify")) < launched_names.index("ocr") + 4
+    assert launched_names == ["notes", "ocr"]
+    assert calls.index(("wait", "notes")) < launched_names.index("ocr") + 3
     notes_call = next(call for call in calls if call[0] == "launch" and call[1] == "notes")
     assert notes_call[2] == Path("project-root")
     assert notes_call[4] == [
@@ -110,6 +110,7 @@ def test_run_pipeline_runs_ocr_after_classify_and_notes(monkeypatch, tmp_path):
         str(Path("project-root") / "scripts" / "import_bookmarks_to_markdown.py"),
     ]
     assert notes_call[3]["THREADS_BOOKMARK_INPUT"] == str(catch)
+    assert notes_call[3]["UNSAVE_PATH"] == str(unsave)
     assert notes_call[3]["THREADS_MARKDOWN_OUTPUT"] == str(markdown_root)
     ocr_call = next(call for call in calls if call[0] == "launch" and call[1] == "ocr")
     assert "--input" in ocr_call[4]

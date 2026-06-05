@@ -16,16 +16,11 @@ Two coupled layers: `userscripts/threads-scriber-auto.user.js` (browser, Tamperm
                                               ▼ (mtime + debounce)
                           scripts/watch_pipeline.py
                                               │
-                          ┌───────────────────┴───────────────────┐
-                          ▼                                       ▼
-   scripts/classify_to_scribe_ai.py            scripts/import_bookmarks_to_markdown.py
-   (Gemini classifier, AI+科技 filter)          (markdown note generator)
-                          │                                       │
-                          ▼                                       ▼
-                  unsave.json                          markdown notes
-                          │                                       │
-                          └──────────────┬────────────────────────┘
-                                         ▼
+                          ▼
+          scripts/import_bookmarks_to_markdown.py
+          (classify once → markdown notes + unsave.json)
+                          │
+                          ▼
                     scripts/image_ocr_to_markdown.py
                     (image OCR → ## 圖片文字)
                           │
@@ -227,17 +222,16 @@ Each `scrape` run first clicks **清空結果** so `catch.json` contains only th
 
 #### Step 4 · Wait for pipeline
 
-Watch Terminal A. After `catch.json` stabilises, the watcher fires both jobs:
+Watch Terminal A. After `catch.json` stabilises, the watcher runs the note workflow, which classifies each post once and writes both markdown notes and `unsave.json`:
 
 ```
 pipeline starting: items=N
-[classify] exit code: 0
 [notes]    exit code: 0
 ```
 
 `unsave.json` and markdown notes are both ready at this point.
 
-After `classify` and `notes` finish, `scripts/image_ocr_to_markdown.py` reads this run's `catch.json` and `unsave.json`. For posts whose classification reason matches `config.json` → `image-ocr.trigger-categories`, it renders the Threads post with Playwright, OCRs attached images, and appends a `## 圖片文字` section to the matching markdown note. Gemini OCR is the default backend; Chandra can be selected in `config.json`.
+After `notes` finishes, `scripts/image_ocr_to_markdown.py` reads this run's `catch.json` and `unsave.json`. For posts whose classification reason matches `config.json` → `image-ocr.trigger-categories`, it renders the Threads post with Playwright, OCRs attached images, and appends a `## 圖片文字` section to the matching markdown note. Gemini OCR is the default backend; Chandra can be selected in `config.json`.
 
 #### Step 5 · Terminal B confirmation gate
 
@@ -319,12 +313,13 @@ Edit this file to customise local paths and per-user categories without touching
 
 | Key | Default | Used by |
 | --- | --- | --- |
-| `paths.catch-json` | `data/catch.json` | classifier, watcher, userscript handle |
-| `paths.unsave-json` | `data/unsave.json` | classifier, watcher, userscript handle |
+| `paths.catch-json` | `data/catch.json` | watcher, note workflow, userscript handle |
+| `paths.unsave-json` | `data/unsave.json` | note workflow, OCR, watcher, userscript handle |
 | `paths.markdown-output-root` | `output` | markdown note output root; ThreadSieve writes notes here and OCR scans this tree |
 | `paths.chrome-ws-cli` | _required for browser automation_ | `agent_driver.py`, `push_userscript.py` |
 | `categories` | project example list | Ordered list of categories the Gemini classifier can output |
 | `unsaved-categories` | project example subset | Subset of `categories` that map to `decision="ai"` — posts in these categories get auto-unsaved |
+| `category-overrides` | `[]` | Optional keyword / regex rules that force a category before calling Gemini; use this for personal taxonomy rules |
 | `image-ocr` | see below | Non-secret image OCR behavior: backend, Chandra method, prompt type, max output tokens, headers/footers toggle, and trigger categories |
 | `hints` | project example rules | Free-text rules injected into the Gemini prompt to guide priority decisions between categories |
 
@@ -339,7 +334,19 @@ Path values may be relative to the project root or absolute local paths. For Win
 }
 ```
 
-Override `unsaved-categories` for a single run: `python scripts/classify_to_scribe_ai.py --unsaved-categories AI,科技`
+Optional category override example:
+
+```json
+"category-overrides": [
+  {
+    "category": "Project",
+    "keywords": ["project mercury"],
+    "regex": ["#project\\b"]
+  }
+]
+```
+
+The normal watcher path classifies once inside `scripts/import_bookmarks_to_markdown.py`, then writes markdown notes and `unsave.json` from that same result. `scripts/classify_to_scribe_ai.py` is still available as a standalone compatibility/debug command; its CLI-only `--unsaved-categories` override applies only to that standalone run.
 
 Default OCR config:
 
@@ -388,7 +395,8 @@ pytest tests/
 ```
 
 Tests cover:
-- `classify_to_scribe_ai.py` — category filter, output schema, error / unsure buckets, custom categories
+- `classify_to_scribe_ai.py` — standalone compatibility classifier output schema, error / unsure buckets, custom categories
+- `import_bookmarks_to_markdown.py` — single-pass classification feeding both markdown notes and `unsave.json`
 - `watch_pipeline.py` — debounce, missing-file handling, `.env` loader
 - `image_ocr_to_markdown.py` — trigger filtering, markdown matching, OCR backend selection, OCR section insertion, DOM image filtering
 - `backfill_image_ocr.py` — frontmatter URL extraction, candidate skipping, dry-run behavior, OCR section insertion/replacement, batch summary
@@ -399,7 +407,7 @@ Tests cover:
 
 - **Browser must be open + on the saved page** for auto-unsave to fire. The watcher will still produce `unsave.json` and markdown notes regardless, but the unsave step is a no-op until you visit `/saved`.
 - **File System Access permission may expire** after a browser restart. The Auto AI Sync panel status will show "handle: not bound" and ignore polls until you re-bind via the button.
-- **Gemini quota**: each scrape uses Gemini for classification and title generation. If `image-ocr.backend` is `gemini`, OCR also consumes quota from the same key.
+- **Gemini quota**: each scrape classifies each post once, then uses Gemini again for title generation. If `image-ocr.backend` is `gemini`, OCR also consumes quota from the same key.
 - **Chandra OCR is optional**: set `config.json` → `image-ocr.backend` to `chandra`. For `method=vllm`, you must provide a reachable Chandra/vLLM OpenAI-compatible endpoint through `VLLM_API_BASE`.
 - **Chandra CLI still needs a viable backend**: `chandra --method vllm` is a CLI client and still requires a running vLLM server. `chandra --method hf` runs locally, but Chandra OCR 2 downloads a 10GB+ model and can be impractically slow or fail on low-resource Windows machines. Use Gemini OCR when no suitable Chandra backend is available.
 - **Markdown image OCR scans the markdown root**: set `config.json` → `paths.markdown-output-root` if you do not want the default `output` folder.
@@ -413,7 +421,7 @@ Tests cover:
 | --- | --- | --- |
 | Watcher prints "missing required config" | `config.json` paths are empty | Verify `paths.catch-json` and `paths.unsave-json` in `config.json` |
 | `catch.json` written but watcher idle | mtime change happened during the debounce window of another run | Wait `DEBOUNCE_SECONDS`; or shrink `POLL_SECONDS` |
-| `classify` subprocess fails with `GEMINI_API_KEY missing` | env not propagated to subprocess | Confirm key is in `.env` (not just shell), restart watcher |
+| `notes` subprocess fails with `GEMINI_API_KEY missing` | env not propagated to subprocess | Confirm key is in `.env` (not just shell), restart watcher |
 | OCR fails with `GEMINI_API_KEY missing` | `image-ocr.backend` is `gemini` but no key is available | Set `GEMINI_API_KEY`, or switch `config.json` → `image-ocr.backend` to `chandra` |
 | Chandra OCR cannot connect to vLLM | `image-ocr.backend=chandra` but `VLLM_API_BASE` is not reachable | Start your Chandra/vLLM server or update `VLLM_API_BASE` |
 | Userscript panel never shows an AI classification load | handle not bound, permission revoked, or `autoLoad` off | Click **綁定 unsave.json** again, tick **自動載入 unsave.json**, or click **立即檢查**; check browser console for `[threads-sieve]` warnings |

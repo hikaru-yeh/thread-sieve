@@ -15,6 +15,11 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from note_generator.infrastructure.gemini_client import GeminiClient
+from note_generator.services.category_overrides import (
+    CategoryOverride,
+    detect_forced_category,
+    parse_category_overrides,
+)
 from note_generator.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_INPUT_PATH,
@@ -37,6 +42,7 @@ class ClassifyConfig:
     categories: list[str]
     unsaved_categories: set[str]
     hints: list[str]
+    category_overrides: list[CategoryOverride] = field(default_factory=list)
     category_set: set[str] = field(init=False, repr=False)
     canonical_by_casefold: dict[str, str] = field(init=False, repr=False)
 
@@ -63,6 +69,7 @@ def parse_config(data: dict) -> ClassifyConfig:
         categories=data["categories"],
         unsaved_categories=set(data.get("unsaved-categories", [])),
         hints=data.get("hints", []),
+        category_overrides=parse_category_overrides(data),
     )
 
 
@@ -138,6 +145,21 @@ def classify_post(
     content = post.get("contentText", "") or ""
     post_id = post.get("postId", "") or ""
     post_url = post.get("postUrl", "") or ""
+
+    forced_category = detect_forced_category(content, config.category_overrides, config.categories)
+    if forced_category:
+        decision = "ai" if forced_category in config.unsaved_categories else "not_ai"
+        return (
+            ClassifiedItem(
+                post_id=post_id,
+                post_url=post_url,
+                decision=decision,
+                confidence=1.0,
+                reason=forced_category,
+                classified_at=timestamp(),
+            ),
+            forced_category,
+        )
 
     try:
         raw = client.generate_text(build_prompt(author, content, config), model=model)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from note_generator.models import ClassifiedBookmark, EnrichedBookmark
+from note_generator.services.category_overrides import CategoryOverride, detect_forced_category
 from note_generator.services.llm_client import LLMClient
 
 
@@ -12,13 +13,21 @@ _TRAILING_WRAP_RE = re.compile(r'[\s`"\'」』）)\]]+$')
 
 
 class CategoryClassifier:
-    def __init__(self, llm_client: LLMClient, model_name: str, categories: list[str], hints: list[str]) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        model_name: str,
+        categories: list[str],
+        hints: list[str],
+        category_overrides: list[CategoryOverride] | None = None,
+    ) -> None:
         if not categories:
             raise ValueError("config.json categories must not be empty")
         self._llm_client = llm_client
         self._model_name = model_name
         self._categories = categories
         self._hints = hints
+        self._category_overrides = category_overrides or []
         self._category_set = set(categories)
         self._canonical_by_casefold = {
             category.casefold(): category
@@ -26,6 +35,18 @@ class CategoryClassifier:
         }
 
     def classify(self, item: EnrichedBookmark) -> ClassifiedBookmark:
+        forced_category = detect_forced_category(
+            item.combined_content,
+            self._category_overrides,
+            self._categories,
+        )
+        if forced_category:
+            return ClassifiedBookmark(
+                enriched=item,
+                category=forced_category,
+                category_reason="category override",
+            )
+
         prompt = self._build_prompt(item)
         raw_category = self._llm_client.generate_text(prompt, model_name=self._model_name)
         category = self._normalize_category(raw_category)

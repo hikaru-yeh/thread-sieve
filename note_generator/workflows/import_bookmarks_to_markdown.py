@@ -21,6 +21,7 @@ from note_generator.services.threads_reply_enricher import (
     ThreadsReplyEnricher,
 )
 from note_generator.services.title_generator import TitleGenerator
+from note_generator.services.unsave_writer import build_unsave_payload, write_unsave_payload
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,10 @@ class ImportBookmarksToMarkdownWorkflow:
         writer: _MarkdownWriter,
         output_dir: Path,
         event_logger: _WorkflowEventLogger,
+        unsaved_categories: set[str] | None = None,
+        unsave_output_path: Path | None = None,
+        source_file_name: str = "catch.json",
+        classification_model: str = "",
     ) -> None:
         self._reader = reader
         self._enricher = enricher
@@ -110,6 +115,10 @@ class ImportBookmarksToMarkdownWorkflow:
         self._writer = writer
         self._output_dir = output_dir
         self._event_logger = event_logger
+        self._unsaved_categories = unsaved_categories or set()
+        self._unsave_output_path = unsave_output_path
+        self._source_file_name = source_file_name
+        self._classification_model = classification_model
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "ImportBookmarksToMarkdownWorkflow":
@@ -140,6 +149,7 @@ class ImportBookmarksToMarkdownWorkflow:
                 model_name=config.gemini_model_for_classification,
                 categories=config.categories,
                 hints=config.hints,
+                category_overrides=config.category_overrides,
             ),
             ocr_enricher=ocr_enricher,
             title_generator=TitleGenerator(
@@ -152,6 +162,10 @@ class ImportBookmarksToMarkdownWorkflow:
             writer=MarkdownWriter(dry_run=False),
             output_dir=config.output_dir,
             event_logger=EventLogger(config.output_dir / config.event_log_filename),
+            unsaved_categories=config.unsaved_categories,
+            unsave_output_path=config.unsave_path,
+            source_file_name=config.input_path.name,
+            classification_model=config.gemini_model_for_classification,
         )
 
     def run(self) -> ImportSummary:
@@ -160,17 +174,11 @@ class ImportBookmarksToMarkdownWorkflow:
         written_count = 0
         skipped_count = 0
         failed_count = 0
+        classification_failed_count = 0
+        classified_items = []
 
         for source in source_items:
-            if source.post_url in existing_output_urls:
-                skipped_count += 1
-                self._event_logger.emit(
-                    "bookmark_skipped_existing",
-                    post_url=source.post_url,
-                    author_handle=source.author_handle,
-                    status="skipped_existing",
-                )
-                continue
+            classified = None
 
             self._event_logger.emit(
                 "bookmark_parsed",
@@ -189,6 +197,18 @@ class ImportBookmarksToMarkdownWorkflow:
                 )
 
                 classified = self._classifier.classify(enriched)
+                classified_items.append(classified)
+
+                if source.post_url in existing_output_urls:
+                    skipped_count += 1
+                    self._event_logger.emit(
+                        "bookmark_skipped_existing",
+                        post_url=source.post_url,
+                        author_handle=source.author_handle,
+                        status="skipped_existing",
+                    )
+                    continue
+
                 classified = self._ocr_enricher.enrich(classified)
                 titled = self._title_generator.generate(classified)
                 filename = self._filename_builder.build(titled.generated_title)
@@ -213,6 +233,8 @@ class ImportBookmarksToMarkdownWorkflow:
                 existing_output_urls.add(source.post_url)
             except Exception:
                 failed_count += 1
+                if classified is None:
+                    classification_failed_count += 1
                 logger.exception("Failed to process bookmark %s", source.post_url)
                 self._event_logger.emit(
                     "bookmark_failed",
@@ -220,6 +242,17 @@ class ImportBookmarksToMarkdownWorkflow:
                     author_handle=source.author_handle,
                     status="failed",
                 )
+
+        if self._unsave_output_path is not None:
+            payload = build_unsave_payload(
+                source_file=self._source_file_name,
+                model=self._classification_model,
+                total_count=len(source_items),
+                classified=classified_items,
+                unsaved_categories=self._unsaved_categories,
+                failed_count=classification_failed_count,
+            )
+            write_unsave_payload(self._unsave_output_path, payload)
 
         summary = ImportSummary(
             processed_count=len(source_items),

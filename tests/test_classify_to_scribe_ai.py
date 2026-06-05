@@ -11,6 +11,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import classify_to_scribe_ai as mod  # noqa: E402
+from note_generator.services.category_overrides import CategoryOverride  # noqa: E402
 
 
 SAMPLE_POSTS = [
@@ -25,14 +26,18 @@ SAMPLE_POSTS = [
     {"postId": "p_food", "postUrl": "https://t.example/p_food", "authorHandle": "@c", "contentText": "delicious ramen"},
 ]
 
-ALL_CATEGORIES = ["AI", "科技", "Claude Code", "美食", "好笑的", "LingOrm", "職場", "心理健康"]
+ALL_CATEGORIES = ["AI", "科技", "Claude Code", "美食", "好笑的", "社群", "職場", "心理健康"]
 
 
-def make_config(unsaved_categories: set[str] | None = None) -> mod.ClassifyConfig:
+def make_config(
+    unsaved_categories: set[str] | None = None,
+    category_overrides: list[CategoryOverride] | None = None,
+) -> mod.ClassifyConfig:
     return mod.ClassifyConfig(
         categories=ALL_CATEGORIES,
         unsaved_categories=unsaved_categories if unsaved_categories is not None else {"AI", "科技"},
         hints=[],
+        category_overrides=category_overrides or [],
     )
 
 
@@ -169,6 +174,29 @@ def test_normalize_category_strips_wrappers_and_prefix():
     assert mod.normalize_category("「科技」", config) == "科技"
     assert mod.normalize_category("category：Claude Code\n", config) == "Claude Code"
     assert mod.normalize_category("", config) == ""
+
+
+def test_configured_category_override_preempts_model_output():
+    config = make_config(
+        category_overrides=[
+            CategoryOverride(category="科技", keywords=("project mercury",)),
+        ],
+    )
+    client = MagicMock()
+    client.generate_text.return_value = "美食"
+    post = {
+        "postId": "p_override",
+        "postUrl": "https://t.example/p_override",
+        "authorHandle": "@demo",
+        "contentText": "Project Mercury release notes",
+    }
+
+    item, category = mod.classify_post(post=post, client=client, model="m", config=config)
+
+    assert category == "科技"
+    assert item.reason == "科技"
+    assert item.decision == "ai"
+    client.generate_text.assert_not_called()
 
 
 def test_load_config(tmp_path):

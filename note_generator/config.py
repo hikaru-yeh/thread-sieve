@@ -5,6 +5,8 @@ from pathlib import Path
 import json
 import os
 
+from note_generator.services.category_overrides import CategoryOverride, parse_category_overrides
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_DIR = Path("output")
@@ -21,9 +23,12 @@ FALSE_VALUES = {"false", "0", "no", "off"}
 @dataclass(frozen=True)
 class AppConfig:
     input_path: Path
+    unsave_path: Path
     output_dir: Path
     categories: list[str]
+    unsaved_categories: set[str]
     hints: list[str]
+    category_overrides: list[CategoryOverride]
     gemini_api_key: str
     gemini_model_for_classification: str
     gemini_model_for_title: str
@@ -164,13 +169,19 @@ def load_config(dotenv_path: Path | None = Path(".env")) -> AppConfig:
             or os.getenv("CATCH_PATH")
             or read_path_setting(config_data, "catch-json", str(DEFAULT_INPUT_PATH))
         ),
+        unsave_path=Path(
+            os.getenv("UNSAVE_PATH")
+            or read_path_setting(config_data, "unsave-json", str(DEFAULT_UNSAVE_PATH))
+        ),
         output_dir=Path(
             os.getenv("THREADS_MARKDOWN_OUTPUT")
             or os.getenv("MARKDOWN_OUTPUT_PATH")
             or read_path_setting(config_data, "markdown-output-root", str(DEFAULT_OUTPUT_DIR))
         ),
         categories=read_str_list_setting(config_data, "categories"),
+        unsaved_categories=set(read_str_list_setting(config_data, "unsaved-categories")),
         hints=read_str_list_setting(config_data, "hints"),
+        category_overrides=parse_category_overrides(config_data),
         gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
         gemini_model_for_classification=(
             (os.getenv("THREADS_GEMINI_CLASSIFIER_MODEL") or os.getenv("CLASSIFIER_MODEL", DEFAULT_GEMINI_MODEL)).strip()
