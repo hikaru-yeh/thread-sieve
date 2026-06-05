@@ -579,7 +579,7 @@
       const payload = JSON.parse(await file.text());
       const sourceItems = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : null;
       if (!sourceItems) {
-        throw new Error("AI 分類格式不正確，找不到 items 陣列。");
+        throw new Error("unsave 分類格式不正確，找不到 items 陣列。");
       }
 
       const items = sourceItems.map((item) => this.normalizeAiItem(item));
@@ -587,7 +587,7 @@
       state.aiMap = this.buildAiMap(items);
       state.aiIndexMap = this.buildAiIndexMap(items);
       const payloadSummary = payload?.summary && typeof payload.summary === "object" ? payload.summary : null;
-      state.aiLoadStatus = `已載入 ${items.length} 筆 AI 分類`;
+      state.aiLoadStatus = `已載入 ${items.length} 筆 unsave 分類`;
       state.aiResultFileName = fileHandle.name || "unsave.json";
       state.aiResultGeneratedAt = typeof payload?.generatedAt === "string" ? payload.generatedAt : "";
       state.aiResultBackend = typeof payload?.backend === "string" ? payload.backend : "";
@@ -647,7 +647,7 @@
         postUrl: post?.postUrl || "",
         decision: "ai",
         confidence: 0.56,
-        reason: "本地關鍵詞判斷為待取消候選；目前載入的 AI 分類未命中這個 DOM key，可能是瀏覽器載入舊檔或 Threads URL key 不一致。",
+        reason: "本地關鍵詞判斷為待取消候選；目前載入的 unsave 分類未命中這個 DOM key，可能是瀏覽器載入舊檔或 Threads URL key 不一致。",
         localCandidate: true
       };
     },
@@ -2798,7 +2798,7 @@
             <button id="${PANEL_ID}-csv">下載 CSV</button>
             <button id="${PANEL_ID}-json">下載 JSON</button>
             <button id="${PANEL_ID}-copy">複製 JSON</button>
-            <button id="${PANEL_ID}-load-ai">載入 AI 分類</button>
+            <button id="${PANEL_ID}-load-ai">載入 unsave 分類</button>
             <button id="${PANEL_ID}-apply-ai">套用標亮</button>
             <button id="${PANEL_ID}-select-high">全選建議取消</button>
             <button id="${PANEL_ID}-select-all-highlighted">全選全部標亮</button>
@@ -2924,7 +2924,7 @@
           if (error?.name === "AbortError") {
             return;
           }
-          setError(`載入 AI 分類失敗: ${error instanceof Error ? error.message : String(error)}`);
+          setError(`載入 unsave 分類失敗: ${error instanceof Error ? error.message : String(error)}`);
         }
       });
       this.elements.applyAi.addEventListener("click", () => AiReviewUtils.applyHighlights());
@@ -2969,7 +2969,7 @@
         `已解析含日期貼文: ${state.postsWithParsedDate}`,
         `最舊已見日期: ${state.oldestSeenPublished || "未知"}`,
         `自動存檔: ${getAutoSaveStatusText()}`,
-        `AI 分類: ${state.aiLoadStatus}`,
+        `unsave 分類: ${state.aiLoadStatus}`,
         `分類檔案: ${state.aiResultFileName || "未指定"}`,
         `分類產生時間/後端: ${state.aiResultGeneratedAt || "未知"} / ${state.aiResultBackend || "未知"}`,
         `分類來源/摘要: ${state.aiResultSourceFile || "未知"} / ${formatAiResultSummary(state.aiResultSummary)}`,
@@ -3353,7 +3353,7 @@
       aiItems: [],
       aiMap: Object.create(null),
       aiIndexMap: new Map(),
-      aiLoadStatus: "未載入 AI 分類",
+      aiLoadStatus: "未載入 unsave 分類",
       aiResultFileName: "",
       aiResultGeneratedAt: "",
       aiResultBackend: "",
@@ -3448,7 +3448,7 @@
     const notAi = summary.not_ai ?? "?";
     const unsure = summary.unsure ?? "?";
     const failed = summary.failed ?? "?";
-    return `total ${total}, ai ${ai}, not_ai ${notAi}, 待判斷 ${unsure}, failed ${failed}`;
+    return `total ${total}, 取消 ${ai}, 保留 ${notAi}, 待判斷 ${unsure}, failed ${failed}`;
   }
 
   function getExportableItems() {
@@ -3561,7 +3561,7 @@
     state.aiItems = [];
     state.aiMap = Object.create(null);
     state.aiIndexMap = new Map();
-    state.aiLoadStatus = "未載入 AI 分類";
+    state.aiLoadStatus = "未載入 unsave 分類";
     state.aiResultFileName = "";
     state.aiResultGeneratedAt = "";
     state.aiResultBackend = "";
