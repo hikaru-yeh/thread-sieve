@@ -32,11 +32,7 @@ class OpenAIClient:
                 temperature=0,
                 messages=[{"role": "user", "content": prompt}],
             )
-            choice = (response.choices or [None])[0]
-            text = (getattr(getattr(choice, "message", None), "content", "") or "").strip()
-            if not text:
-                logger.warning("OpenAI returned empty text response")
-            return text
+            return _extract_chat_text(response)
 
         return self._with_retries(_call, label="OpenAI")
 
@@ -51,7 +47,7 @@ class OpenAIClient:
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": prompt},
-                        {"type": "input_image", "image_url": data_url},
+                        {"type": "input_image", "image_url": data_url, "detail": "auto"},
                     ],
                 }
             ],
@@ -77,3 +73,15 @@ class OpenAIClient:
                 time.sleep(delay)
         assert last_error is not None
         raise last_error
+
+
+def _extract_chat_text(response) -> str:
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        logger.warning("OpenAI returned empty choices list")
+        return ""
+    message = getattr(choices[0], "message", None)
+    text = (getattr(message, "content", "") or "").strip()
+    if not text:
+        logger.warning("OpenAI returned empty text response")
+    return text

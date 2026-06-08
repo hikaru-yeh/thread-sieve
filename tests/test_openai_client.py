@@ -55,6 +55,7 @@ def test_generate_text_from_image_uses_responses_api_with_data_url():
         assert content[1]["type"] == "input_image"
         expected_b64 = base64.standard_b64encode(b"\xff\xd8jpeg").decode("ascii")
         assert content[1]["image_url"] == f"data:image/jpeg;base64,{expected_b64}"
+        assert content[1]["detail"] == "auto"
 
 
 def test_missing_api_key_raises():
