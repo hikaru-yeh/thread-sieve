@@ -4,6 +4,12 @@
     "unsave-json": "data/unsave.json",
     "markdown-output-root": "D:/<output folder for the markdown files>"
   },
+  "llm": {
+    "provider": "gemini",
+    "text-model": "gemini-2.5-flash",
+    "title-model": "gemini-2.5-flash",
+    "vision-model": "gemini-2.5-flash"
+  },
   "categories": [
     "AI",
     "Tech",
