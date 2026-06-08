@@ -58,6 +58,10 @@ Confirms the userscript panel, `SCRIPT_VERSION`, and FS Access handles are bound
 
 Pure Python pytest cannot verify DOM / userscript internals. For JS-only bugs the regression proof is `agent_driver.py probe` + a documented manual repro — do not fake a passing pytest.
 
+## Supported dev-assistant configs
+
+This repo carries Claude Code (`.claude/`), Codex (`.codex/`), and Antigravity (`.antigravity/`) hook configs. All three trigger the same `check-chrome-debug` pre-flight before `agent_driver.py` / `push_userscript.py` runs over `Bash`, and emit the same graphify-aware additional-context reminder.
+
 ## graphify
 
 This project has a graphify knowledge graph at graphify-out/.
