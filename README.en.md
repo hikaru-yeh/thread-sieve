@@ -409,6 +409,24 @@ Each considered file gets one JSONL event with `processed`, `skipped`, `failed`,
 
 ---
 
+## LLM provider
+
+ThreadSieve uses an LLM for classification, title generation, and image OCR. The default backend is Google Gemini (SDK), but `config.json` or `.env` can switch to Anthropic Claude or OpenAI ChatGPT.
+
+| Provider  | API key env var       | Default text model     | Default vision model   |
+|-----------|-----------------------|------------------------|------------------------|
+| Gemini    | `GEMINI_API_KEY`      | `gemini-2.5-flash`     | `gemini-2.5-flash`     |
+| Anthropic | `ANTHROPIC_API_KEY`   | `claude-sonnet-4-6`    | `claude-sonnet-4-6`    |
+| OpenAI    | `OPENAI_API_KEY`      | `gpt-4o-mini`          | `gpt-4o`               |
+
+Pick a provider with `LLM_PROVIDER=...` in `.env`, or set `"llm": { "provider": "..." }` in `config.json`. Only the API key for the selected provider needs to be filled in.
+
+Per-stage model overrides: env vars `THREADS_LLM_CLASSIFIER_MODEL` / `THREADS_LLM_TITLE_MODEL` / `THREADS_LLM_OCR_MODEL`, or `config.json` keys `llm.text-model` / `llm.title-model` / `llm.vision-model`.
+
+Note: the standalone `scripts/image_ocr_to_markdown.py` CLI currently supports only `--ocr-backend gemini`; the multi-provider factory is wired into the main pipeline (`scripts/import_bookmarks_to_markdown.py` + workflow).
+
+---
+
 ## Configuration
 
 ### `config.json` — paths, classification logic, and OCR behavior
