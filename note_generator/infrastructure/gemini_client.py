@@ -17,13 +17,13 @@ class GeminiClient:
         self._max_retries = max(0, max_retries)
         self._retry_base_delay = retry_base_delay
 
-    def generate_text(self, prompt: str, *, model: str) -> str:
+    def generate_text(self, prompt: str, *, model_name: str) -> str:
         attempt = 0
         last_error: Exception | None = None
         while attempt <= self._max_retries:
             try:
                 response = self._client.models.generate_content(
-                    model=model,
+                    model=model_name,
                     contents=prompt,
                     config=types.GenerateContentConfig(temperature=0),
                 )
@@ -53,10 +53,10 @@ class GeminiClient:
         assert last_error is not None
         raise last_error
 
-    def generate_text_from_image(self, image_bytes: bytes, prompt: str, *, model: str) -> str:
+    def generate_text_from_image(self, image_bytes: bytes, prompt: str, *, model_name: str) -> str:
         image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
         response = self._client.models.generate_content(
-            model=model,
+            model=model_name,
             contents=[image_part, prompt],
             config=types.GenerateContentConfig(temperature=0),
         )
