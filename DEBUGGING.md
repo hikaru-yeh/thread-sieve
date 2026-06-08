@@ -57,6 +57,10 @@ Claude will:
 | `push_userscript.py` exits 4 — "reload /saved failed" | `/saved` tab closed or chrome-ws lost connection | Reopen `https://www.threads.com/saved`; verify Chrome is on port 9222 |
 | `probe` reports `panel missing` after a push | Userscript has a syntax error | Open Tampermonkey console (Tampermonkey icon → Dashboard → script → Console); fix the error and re-push |
 | `probe` reports `scriptVersion=...` mismatch | `SCRIPT_VERSION` constant out of sync with `@version` | Bump both in `userscripts/threads-scriber-auto.user.js` (or `scripts/_rebuild_userscript.py`) |
+| `RuntimeError: ANTHROPIC_API_KEY is required for the Anthropic backend` | `LLM_PROVIDER=anthropic` selected but `.env` only has `GEMINI_API_KEY` | Either set `ANTHROPIC_API_KEY=...` in `.env`, or change `LLM_PROVIDER` back to `gemini` |
+| `RuntimeError: OPENAI_API_KEY is required for the OpenAI backend` | Same pattern for the OpenAI backend | Set `OPENAI_API_KEY=...` or switch provider |
+| `ValueError: unsupported llm provider: 'foo'` | Typo in `LLM_PROVIDER` or `llm.provider` | Use one of `gemini` / `anthropic` / `openai` |
+| Wrong model used despite an override | Resolution order: `THREADS_LLM_*_MODEL` env > legacy env (`CLASSIFIER_MODEL` / `THREADS_GEMINI_TITLE_MODEL` / `IMAGE_OCR_MODEL`) > `config.json` (`llm.text-model` / `title-model` / `vision-model`) > per-provider default | Inspect which level you set; clear the higher-priority sources if they were unintentional |
 
 ## When NOT to use `/debug-loop`
 
