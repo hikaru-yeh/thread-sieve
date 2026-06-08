@@ -39,8 +39,17 @@ def test_generate_text_from_image_passes_jpeg(gemini_response):
         result = client.generate_text_from_image(b"jpegbytes", "ocr please", model_name="gemini-2.5-flash")
 
         assert result == "AI"
-        call_args = sdk_client.models.generate_content.call_args.kwargs
-        assert call_args["model"] == "gemini-2.5-flash"
+        call_kwargs = sdk_client.models.generate_content.call_args.kwargs
+        assert call_kwargs["model"] == "gemini-2.5-flash"
+
+        contents = call_kwargs["contents"]
+        assert isinstance(contents, list) and len(contents) == 2, "contents must be [image_part, prompt]"
+        # First element is the SDK Part object — assert it carries the JPEG mime type
+        image_part = contents[0]
+        assert getattr(image_part, "inline_data", None) is not None or "image/jpeg" in repr(image_part), (
+            "image_part should be a Part carrying image/jpeg data"
+        )
+        assert contents[1] == "ocr please"
 
 
 def test_missing_api_key_raises():
