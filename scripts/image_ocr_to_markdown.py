@@ -14,7 +14,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from note_generator.infrastructure.gemini_client import GeminiClient
+from note_generator.infrastructure.llm_factory import build_llm_client
 from note_generator.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_INPUT_PATH,
@@ -219,10 +219,10 @@ def download_image(url: str) -> bytes:
 def build_gemini_ocr_image(*, api_key: str, model: str = DEFAULT_MODEL) -> Callable[[str], str]:
     if not api_key.strip():
         raise RuntimeError("GEMINI_API_KEY missing. Set in .env or pass --api-key.")
-    client = GeminiClient(api_key=api_key)
+    client = build_llm_client("gemini", {"gemini": api_key})
 
     def ocr_image(image_url: str) -> str:
-        return client.generate_text_from_image(download_image(image_url), OCR_PROMPT, model=model)
+        return client.generate_text_from_image(download_image(image_url), OCR_PROMPT, model_name=model)
 
     return ocr_image
 

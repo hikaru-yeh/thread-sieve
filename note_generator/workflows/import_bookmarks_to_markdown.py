@@ -10,11 +10,11 @@ from note_generator.config import AppConfig
 from note_generator.domain.bookmark_reader import BookmarkReader
 from note_generator.domain.filename_builder import FilenameBuilder
 from note_generator.domain.markdown_content_builder import MarkdownContentBuilder
+from note_generator.infrastructure.llm_factory import build_llm_client
 from note_generator.models import ImportSummary
 from note_generator.services.category_classifier import CategoryClassifier
 from note_generator.services.event_logger import EventLogger
 from note_generator.services.image_ocr_enricher import ImageOCREnricher
-from note_generator.services.llm_client import LLMClient
 from note_generator.services.markdown_writer import MarkdownWriter
 from note_generator.services.threads_reply_enricher import (
     PlaywrightThreadPageClient,
@@ -122,7 +122,7 @@ class ImportBookmarksToMarkdownWorkflow:
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "ImportBookmarksToMarkdownWorkflow":
-        llm_client = LLMClient(config.gemini_api_key)
+        llm_client = build_llm_client(config.llm_provider, config.llm_api_keys)
         page_client = (
             PlaywrightThreadPageClient(headless=config.playwright_headless)
             if config.playwright_enabled
@@ -131,7 +131,7 @@ class ImportBookmarksToMarkdownWorkflow:
         ocr_enricher = (
             ImageOCREnricher(
                 llm_client=llm_client,
-                model_name=config.gemini_model_for_ocr,
+                model_name=config.model_for_ocr,
                 trigger_categories=config.image_ocr_categories,
                 image_page_client=page_client,
             )
@@ -146,7 +146,7 @@ class ImportBookmarksToMarkdownWorkflow:
             ),
             classifier=CategoryClassifier(
                 llm_client=llm_client,
-                model_name=config.gemini_model_for_classification,
+                model_name=config.model_for_classification,
                 categories=config.categories,
                 hints=config.hints,
                 category_overrides=config.category_overrides,
@@ -154,7 +154,7 @@ class ImportBookmarksToMarkdownWorkflow:
             ocr_enricher=ocr_enricher,
             title_generator=TitleGenerator(
                 llm_client=llm_client,
-                model_name=config.gemini_model_for_title,
+                model_name=config.model_for_title,
                 max_title_length=config.max_title_length,
             ),
             filename_builder=FilenameBuilder(config.output_dir),
@@ -165,7 +165,7 @@ class ImportBookmarksToMarkdownWorkflow:
             unsaved_categories=config.unsaved_categories,
             unsave_output_path=config.unsave_path,
             source_file_name=config.input_path.name,
-            classification_model=config.gemini_model_for_classification,
+            classification_model=config.model_for_classification,
         )
 
     def run(self) -> ImportSummary:
