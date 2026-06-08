@@ -14,10 +14,24 @@ DEFAULT_INPUT_PATH = Path("data/catch.json")
 DEFAULT_UNSAVE_PATH = Path("data/unsave.json")
 DEFAULT_CONFIG_PATH = Path("config.json")
 LEGACY_CONFIG_PATH = Path("classify_config.json")
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_IMAGE_OCR_CATEGORIES = {"AI", "Claude Code"}
 TRUE_VALUES = {"true", "1", "yes", "on"}
 FALSE_VALUES = {"false", "0", "no", "off"}
+
+SUPPORTED_PROVIDERS = ("gemini", "anthropic", "openai")
+DEFAULT_PROVIDER = "gemini"
+
+_DEFAULT_TEXT_MODELS = {
+    "gemini": "gemini-2.5-flash",
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-4o-mini",
+}
+_DEFAULT_VISION_MODELS = {
+    "gemini": "gemini-2.5-flash",
+    "anthropic": "claude-sonnet-4-6",
+    "openai": "gpt-4o",
+}
+DEFAULT_GEMINI_MODEL = _DEFAULT_TEXT_MODELS["gemini"]  # back-compat re-export
 
 
 @dataclass(frozen=True)
@@ -29,10 +43,11 @@ class AppConfig:
     unsaved_categories: set[str]
     hints: list[str]
     category_overrides: list[CategoryOverride]
-    gemini_api_key: str
-    gemini_model_for_classification: str
-    gemini_model_for_title: str
-    gemini_model_for_ocr: str
+    llm_provider: str
+    llm_api_keys: dict[str, str]
+    model_for_classification: str
+    model_for_title: str
+    model_for_ocr: str
     image_ocr_enabled: bool
     image_ocr_categories: set[str]
     playwright_enabled: bool
@@ -159,9 +174,53 @@ def _read_csv_set(name: str, default: set[str]) -> set[str]:
     return {part.strip() for part in raw_value.split(",") if part.strip()}
 
 
+def _read_llm_block(config_data: dict) -> dict:
+    block = config_data.get("llm")
+    return block if isinstance(block, dict) else {}
+
+
+def _resolve_provider(config_data: dict) -> str:
+    env_value = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+    if env_value:
+        return env_value
+    block_value = str(_read_llm_block(config_data).get("provider") or "").strip().lower()
+    if block_value:
+        return block_value
+    return DEFAULT_PROVIDER
+
+
+def _resolve_model(
+    config_data: dict,
+    *,
+    json_key: str,
+    env_var: str,
+    legacy_env_var: str | None,
+    default_table: dict[str, str],
+    provider: str,
+) -> str:
+    env_value = (os.getenv(env_var) or "").strip()
+    if env_value:
+        return env_value
+    if legacy_env_var:
+        legacy_value = (os.getenv(legacy_env_var) or "").strip()
+        if legacy_value:
+            return legacy_value
+    block_value = str(_read_llm_block(config_data).get(json_key) or "").strip()
+    if block_value:
+        return block_value
+    return default_table.get(provider, default_table[DEFAULT_PROVIDER])
+
+
 def load_config(dotenv_path: Path | None = Path(".env")) -> AppConfig:
     _load_dotenv_if_present(dotenv_path)
     config_data = load_json_config()
+    provider = _resolve_provider(config_data)
+
+    api_keys = {
+        "gemini": os.getenv("GEMINI_API_KEY", "").strip(),
+        "anthropic": os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        "openai": os.getenv("OPENAI_API_KEY", "").strip(),
+    }
 
     return AppConfig(
         input_path=Path(
@@ -182,18 +241,31 @@ def load_config(dotenv_path: Path | None = Path(".env")) -> AppConfig:
         unsaved_categories=set(read_str_list_setting(config_data, "unsaved-categories")),
         hints=read_str_list_setting(config_data, "hints"),
         category_overrides=parse_category_overrides(config_data),
-        gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-        gemini_model_for_classification=(
-            (os.getenv("THREADS_GEMINI_CLASSIFIER_MODEL") or os.getenv("CLASSIFIER_MODEL", DEFAULT_GEMINI_MODEL)).strip()
-            or DEFAULT_GEMINI_MODEL
+        llm_provider=provider,
+        llm_api_keys=api_keys,
+        model_for_classification=_resolve_model(
+            config_data,
+            json_key="text-model",
+            env_var="THREADS_LLM_CLASSIFIER_MODEL",
+            legacy_env_var="CLASSIFIER_MODEL",
+            default_table=_DEFAULT_TEXT_MODELS,
+            provider=provider,
         ),
-        gemini_model_for_title=(
-            os.getenv("THREADS_GEMINI_TITLE_MODEL", DEFAULT_GEMINI_MODEL).strip()
-            or DEFAULT_GEMINI_MODEL
+        model_for_title=_resolve_model(
+            config_data,
+            json_key="title-model",
+            env_var="THREADS_LLM_TITLE_MODEL",
+            legacy_env_var="THREADS_GEMINI_TITLE_MODEL",
+            default_table=_DEFAULT_TEXT_MODELS,
+            provider=provider,
         ),
-        gemini_model_for_ocr=(
-            (os.getenv("THREADS_GEMINI_OCR_MODEL") or os.getenv("IMAGE_OCR_MODEL", DEFAULT_GEMINI_MODEL)).strip()
-            or DEFAULT_GEMINI_MODEL
+        model_for_ocr=_resolve_model(
+            config_data,
+            json_key="vision-model",
+            env_var="THREADS_LLM_OCR_MODEL",
+            legacy_env_var="IMAGE_OCR_MODEL",
+            default_table=_DEFAULT_VISION_MODELS,
+            provider=provider,
         ),
         image_ocr_enabled=_read_bool("THREADS_IMAGE_OCR_ENABLED", False),
         image_ocr_categories=_read_csv_set(
