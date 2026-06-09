@@ -445,7 +445,7 @@ Edit this file to customise local paths and per-user categories without touching
 | `image-ocr` | see below | Non-secret image OCR behavior: backend, Chandra method, prompt type, max output tokens, headers/footers toggle, and trigger categories |
 | `hints` | project example rules | Free-text rules injected into the Gemini prompt to guide priority decisions between categories |
 
-Path values may be relative to the project root or absolute local paths. For Windows paths in JSON, forward slashes are easiest: `C:/Users/<you>/...`.
+Path values may be relative to the project root or absolute local paths. For Windows absolute paths in JSON you MUST use forward slashes (`C:/Users/<you>/...`) or escape every backslash as `\\` (`C:\\Users\\<you>\\...`). A single `\` is the JSON escape character, so `"D:\shane\..."` raises `json.decoder.JSONDecodeError: Invalid \escape`.
 
 ```json
 "paths": {
@@ -542,6 +542,7 @@ Tests cover:
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | Watcher prints "missing required config" | `config.json` paths are empty | Verify `paths.catch-json` and `paths.unsave-json` in `config.json` |
+| classify exits with `json.decoder.JSONDecodeError: Invalid \escape` | Windows path in `config.json` uses single `\` | Use `/` (`D:/foo/bar`) or `\\` (`D:\\foo\\bar`) |
 | `catch.json` written but watcher idle | mtime change happened during the debounce window of another run | Wait `DEBOUNCE_SECONDS`; or shrink `POLL_SECONDS` |
 | `notes` subprocess fails with `GEMINI_API_KEY missing` | env not propagated to subprocess | Confirm key is in `.env` (not just shell), restart watcher |
 | OCR fails with `GEMINI_API_KEY missing` | `image-ocr.backend` is `gemini` but no key is available | Set `GEMINI_API_KEY`, or switch `config.json` → `image-ocr.backend` to `chandra` |
