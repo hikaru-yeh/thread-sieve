@@ -203,7 +203,7 @@ Note: the standalone `scripts/image_ocr_to_markdown.py` CLI currently supports o
 | `image-ocr.backend` | `gemini` | lite build only supports Gemini |
 | `image-ocr.trigger-categories` | `["AI"]` | categories that trigger image OCR |
 
-Path values may be relative or absolute. For Windows paths in JSON, forward slashes are easiest: `C:/Users/<you>/...`.
+Path values may be relative or absolute. For Windows absolute paths in JSON you MUST use forward slashes (`C:/Users/<you>/...`) or escape every backslash as `\\` (`C:\\Users\\<you>\\...`). A single `\` is the JSON escape character, so `"D:\shane\..."` raises `json.decoder.JSONDecodeError: Invalid \escape`.
 
 `.env`:
 
@@ -230,6 +230,7 @@ Path values may be relative or absolute. For Windows paths in JSON, forward slas
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | Double-clicking `run_classify.cmd` shows `.venv not found` | venv never created | Run the install → Python side block once |
+| classify exits with `json.decoder.JSONDecodeError: Invalid \escape` | Windows path in `config.json` uses single `\` | Use `/` (`D:/foo/bar`) or `\\` (`D:\\foo\\bar`) |
 | classify exits with `GEMINI_API_KEY missing` | key not in `.env` or venv didn't pick it up | Confirm `GEMINI_API_KEY=...` in `.env`, double-click again |
 | Panel never loads AI classification | handle not bound / autoLoad off | Re-bind `unsave.json`, tick **自動載入 unsave.json** |
 | `unsave.json` updated but browser idle | Auto AI Sync poll not yet cycled | Click **立即檢查** to force a poll |
