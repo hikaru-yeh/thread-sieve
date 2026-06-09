@@ -26,6 +26,9 @@ class OpenAIClient:
         self._retry_base_delay = retry_base_delay
 
     def generate_text(self, prompt: str, *, model_name: str) -> str:
+        # Uses Chat Completions API: it is the stable text path across SDK 1.x and 2.x
+        # and works against self-hosted OpenAI-compatible gateways. Responses API is
+        # reserved for vision (it is the SDK's documented image-input surface).
         def _call() -> str:
             response = self._client.chat.completions.create(
                 model=model_name,
@@ -37,6 +40,9 @@ class OpenAIClient:
         return self._with_retries(_call, label="OpenAI")
 
     def generate_text_from_image(self, image_bytes: bytes, prompt: str, *, model_name: str) -> str:
+        # Uses Responses API (not Chat Completions): the SDK's documented vision path
+        # accepts an `input_image` content block, which the legacy Chat Completions
+        # schema does not match cleanly.
         encoded = base64.standard_b64encode(image_bytes).decode("ascii")
         data_url = f"data:image/jpeg;base64,{encoded}"
         # No retry wrapper — matches GeminiClient.generate_text_from_image parity (single-shot OCR).
@@ -80,8 +86,12 @@ def _extract_chat_text(response) -> str:
     if not choices:
         logger.warning("OpenAI returned empty choices list")
         return ""
-    message = getattr(choices[0], "message", None)
+    choice = choices[0]
+    message = getattr(choice, "message", None)
     text = (getattr(message, "content", "") or "").strip()
     if not text:
-        logger.warning("OpenAI returned empty text response")
+        finish_reason = getattr(choice, "finish_reason", None)
+        logger.warning(
+            "OpenAI returned empty text response (finish_reason=%r)", finish_reason
+        )
     return text
